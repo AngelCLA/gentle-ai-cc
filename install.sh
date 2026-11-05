@@ -8,6 +8,9 @@
 #   2. local ./dist/checksums.txt (artifacts from gentle-cc-release.sh)
 #   3. an authenticated download of the release via `gh`
 # There is no automatic source fallback if release selection/download fails.
+# Native pair assets require a prepared native GENTLE_CC_VERSION: the unchanged
+# default 4.3.1-cc.1 is legacy (use --no-wrapper for its companion-only assets).
+# Source overrides build the wrapper from this distribution's Go module.
 #
 # Environment:
 #   GENTLE_CC_VERSION   release tag/prefix (default 4.3.1-cc.1)

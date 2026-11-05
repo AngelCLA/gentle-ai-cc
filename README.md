@@ -9,14 +9,32 @@ real end-to-end Linux validation remains pending.
 > `NOT_PLANNED`), #4105 and #5790 were closed under the policy *"we're not
 > accepting new agents for now."* This is a community workaround.
 
-## Quick install (release path: no Go or gentle-ai checkout)
+## Native wrapper transition (development, not a published release)
+
+This checkout builds a standalone Go wrapper: running downloaded native binaries
+requires **neither Python nor Bash nor Go**. Installers still need Bash or
+PowerShell; source builds need Go. The companion remains a separate executable.
+The older `4.3.1-cc.1` release used a universal Bash wrapper, **not** the native
+asset format described here. Defaults still name that legacy version; do not
+interpret them as an available native release. No new release version or
+publication is established by this change.
+
+Use a source build below, or locally package an explicitly chosen development
+version and install its matching assets. For the old release, `--no-wrapper`
+remains the explicit companion-only path; an existing legacy wrapper is not
+upgraded by that option. Native pair installation against old release assets
+fails without replacing either executable.
+
+## Release install (only after matching native assets are prepared)
 
 This repository is **private**, so use an authenticated clone (not the anonymous
-`curl` form):
+`curl` form). Replace `<native-version>` with an actually prepared native version;
+the following is **not** a successful path to the old default release:
 
 ```bash
 git clone https://github.com/AngelCLA/gentle-ai-cc.git
-cd gentle-ai-cc && ./install.sh
+cd gentle-ai-cc
+GENTLE_CC_VERSION=<native-version> ./install.sh
 ```
 
 `install.sh` first honors an explicit `GENTLE_CC_SOURCE` override (source build).
@@ -40,15 +58,15 @@ gentle-cc install --preset full-gentleman   # first time
 gentle-cc sync                              # subsequent
 ```
 
-Pin a specific release with `GENTLE_CC_VERSION=4.3.1-cc.1`.
+Pin the prepared native release with `GENTLE_CC_VERSION=<native-version>`.
 `GENTLE_CC_DEST` changes the install directory, not the wrapper's binary lookup:
 for a custom directory, add it to `PATH` and set `GENTLE_CC_BIN` to the installed
 companion's full path.
 
 ### Prerequisites
 
-- Linux/macOS: Bash and standard POSIX command-line tools; Python 3 with
-  `fcntl.flock` and a filesystem with advisory locking for mutating wrapper calls.
+- Bash installers: Bash and standard POSIX command-line tools. The native wrapper
+  requires no interpreter; mutating calls need a filesystem with working OS locks.
 - Release installation: `curl` (including the local `file://` path), `sha256sum`
   or `shasum -a 256`, and trusted release artifacts/manifest.
 - Private quick path: Git for the authenticated clone; authenticated `gh` only
@@ -57,7 +75,7 @@ companion's full path.
   required module dependencies available. The pinned source currently requires
   Go 1.25.10 or newer; other refs may differ. Release users do not need Go.
 - Windows: PowerShell and `Get-FileHash`; `gh` authenticated for remote releases.
-  Use an explicit destination and direct binary invocation as shown below.
+  Installs both native `.exe` files together in the destination shown below.
 
 ## What this is
 
@@ -69,11 +87,11 @@ the shared `state.json` compatible with the official binary.
 | File | Role |
 | --- | --- |
 | `gentle-ai-cc` | Companion binary (has the Command Code adapter). |
-| `gentle-cc` | Wrapper: runs the companion only for `command-code`, cleans shared state. |
+| `cmd/gentle-cc/` | Native wrapper entry point: runs the companion only for `command-code`, cleans shared state. |
 | `gentle-cc-release.sh` | Packages checked-out source for six targets + wrapper + `checksums.txt`. |
 | `gentle-cc-install.sh` | Verifies release checksums before installation **or** builds from a source ref. |
 | `install.sh` | POSIX convenience installer (clone-based; private-repo safe). |
-| `install.ps1` | Windows installer (PowerShell; checksum verification, runtime unverified here). |
+| `install.ps1` | Windows installer (PowerShell; isolated native installer fixtures, not real companion E2E). |
 
 ## Platform support
 
@@ -82,44 +100,39 @@ been published:
 
 | OS / arch packaging targets | Installer / wrapper | Runtime evidence here |
 | --- | --- | --- |
-| Linux amd64 / arm64 | `install.sh` / Bash wrapper | Fake-binary fixture tests on the host; real E2E pending, not proof for both architectures. |
-| macOS amd64 / arm64 | `install.sh` / Bash wrapper | Not runtime-verified. |
-| Windows amd64 / arm64 | `install.ps1` / no native wrapper | Isolated PowerShell installer fixtures on Windows; real binary runtime unverified. |
+| Linux amd64 / arm64 | `install.sh` / native Go wrapper | Cross-compilation only; Unix runtime not certified. |
+| macOS amd64 / arm64 | `install.sh` / native Go wrapper | Cross-compilation only; Unix runtime not certified. |
+| Windows amd64 / arm64 | `install.ps1` / native Go wrapper | Isolated native amd64 CLI and PowerShell fixtures; real companion E2E and arm64 runtime unverified. |
 
-Mutating wrapper commands require **Python 3** on `PATH` with `fcntl.flock`
-(for OS locking, shared-state validation and atomic cleanup). Linux fixture tests
-exercise the lock; macOS uses the same POSIX API but remains unverified here.
-
-On **Windows**, use `install.ps1` to install the companion binary, then call the
-binary directly:
+On **Windows**, use `install.ps1` with a prepared native release or complete local
+`dist/`. The wrapper locates the companion as a sibling `gentle-ai-cc.exe`:
 
 ```powershell
+$env:GENTLE_CC_VERSION = "<native-version>" # must actually exist, not 4.3.1-cc.1
 $env:GENTLE_CC_DEST = Join-Path $env:LOCALAPPDATA "gentle-cc"
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-& (Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe") install --agent command-code --preset full-gentleman
-& (Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe") sync --agent command-code
+pwsh -NoProfile -File .\install.ps1
+& (Join-Path $env:GENTLE_CC_DEST "gentle-cc.exe") install --preset full-gentleman
+& (Join-Path $env:GENTLE_CC_DEST "gentle-cc.exe") sync
 ```
 
-This example does not require the destination to be on `PATH`. Direct binary
-calls skip wrapper cleanup and can leave Command Code IDs in shared state,
-causing official sync to fail; review "The shared-state detail" before use.
-Do not run direct binary writes concurrently with the wrapper or each other.
+No `PATH` configuration or runtime interpreter is needed for these absolute
+paths. `GENTLE_CC_BIN` still overrides companion lookup. Native Windows symlink
+privilege and attached-console termination proof remain limited; WSL/Unix runtime
+has not been certified. Direct binary writes bypass cleanup and wrapper locking;
+do not run them concurrently with the wrapper or each other.
 
-The `gentle-cc` wrapper is a **bash** script (it does the `state.json` cleanup
-after each operation). **Git Bash is not a supported mutating wrapper runtime**:
-native Windows Python generally lacks `fcntl.flock`. Missing or unusable OS locking
-fails closed, before either mutating binary runs; there is no mkdir fallback.
-WSL with Linux Bash/Python uses the Linux locking path (not runtime-verified here).
-Without a supported wrapper runtime, call the companion directly and note that the wrapper's
-post-run state cleanup will not happen (see "The shared-state detail").
-`install.ps1` uses local `dist/` only when both the requested version/platform
-asset and its checksum entry are present. Otherwise it downloads via `gh` into
+`install.ps1` uses local `dist/` only when **both** requested native version/platform
+assets and both checksum entries are present. Otherwise it downloads via `gh` into
 fresh temporary staging, never using `dist/` as a download cache. A native `gh`
 failure or checksum mismatch aborts installation; owned staging is cleaned on
 success and failure. A complete but corrupt local release fails checksum
 verification rather than silently falling back to a download.
 The PowerShell installer rejects an existing directory or reparse point at
-`gentle-ai-cc.exe` before copying, preserving that destination on rejection.
+either `gentle-ai-cc.exe` or `gentle-cc.exe`, and rejects a linked/non-directory
+destination directory before writes. It stages both files and backups before
+publication; controlled failures restore only successfully replaced files,
+removing newly created files on rollback. Failed restoration retains backups
+with an explicit manual-recovery warning. This is **not pair-atomic or crash-safe**.
 Use an exclusively controlled destination; concurrent path swaps and linked
 parent directories are not protected by this check. Isolated PowerShell fixtures
 have been executed on Windows; real companion runtime remains unverified.
@@ -167,11 +180,13 @@ GitHub CLI credentials. Use it only with an accessible endpoint or trusted local
 release directory, for example:
 
 ```bash
-./gentle-cc-install.sh --from-release file:///absolute/path/to/release --version 4.3.1-cc.1
+./gentle-cc-install.sh --from-release file:///absolute/path/to/release --version <native-version>
 ```
 
 The directory must contain `checksums.txt`, the matching platform/version binary,
-and `gentle-cc` (unless `--no-wrapper`). A private GitHub release URL does not
+and `gentle-cc_<version>_<os>_<arch>[.exe]` (unless `--no-wrapper`).
+Companion assets remain `gentle-ai-cc_<version>_<os>_<arch>[.exe]`.
+The installed names are `gentle-ai-cc` and `gentle-cc` (both `.exe` on Windows). A private GitHub release URL does not
 become accessible just because `gh` is authenticated.
 
 ### B. Build from source at a pinned commit (needs Go)
@@ -179,17 +194,37 @@ become accessible just because `gh` is authenticated.
 This builds the **gentle-ai** module, so `--from-source` must point at a checkout
 of gentle-ai that contains the Command Code adapter (a fork/branch with
 `internal/agents/commandcode/`). It does **not** work against this distribution
-repo, which contains scripts only.
+repo for the companion. This distribution now has its own separate Go module
+for the native wrapper.
 
-The wrapper comes from **this distribution**, beside `gentle-cc-install.sh`,
-not from the external gentle-ai module. Keep the installer and `gentle-cc` from
-this distribution together so their versions remain coherent. Source mode checks
-and stages that wrapper before creating or changing the destination and before
-cloning or building. If it is unavailable, installation fails without replacing
-an existing binary or wrapper; it never silently keeps an old wrapper or reports
-success with a missing one. Use `--no-wrapper` to explicitly install only the
-binary without needing the distribution wrapper (any existing wrapper is left
-unchanged). Both Bash modes use the publication recovery described below.
+The native wrapper is **built from this distribution's Go module**, never the
+external gentle-ai module or a Bash wrapper. Keep `go.mod`,
+`cmd/`, `internal/`, and the installer from the same distribution checkout.
+To build only the wrapper from this distribution checkout (Go 1.25.0 or newer):
+
+```bash
+go build -trimpath -buildvcs=false -o ./dist/gentle-cc ./cmd/gentle-cc
+./dist/gentle-cc --help
+```
+
+On native Windows, use PowerShell and an `.exe` output:
+
+```powershell
+go build -trimpath -buildvcs=false -o .\dist\gentle-cc.exe .\cmd\gentle-cc
+.\dist\gentle-cc.exe --help
+```
+
+These commands build **only the wrapper**, not the companion. Before using other
+commands, install the separate companion: on Windows place `gentle-ai-cc.exe`
+beside the wrapper, or set `GENTLE_CC_BIN` to its full path on either platform.
+`gentle-cc build` builds the **companion**, not the wrapper; a missing companion
+also triggers that build, requiring Go and the external adapter checkout.
+
+Source installer mode checks for the wrapper module before cloning, then builds and stages the
+wrapper and companion before changing the destination. A missing module or failed
+build leaves existing destinations untouched. `--no-wrapper` skips the wrapper
+module check and build entirely, preserving any existing wrapper. Both Bash modes
+use the publication recovery described below.
 
 ```bash
 ./gentle-cc-install.sh --from-source https://github.com/<you>/gentle-ai.git --ref <pinned-commit>
@@ -226,7 +261,9 @@ artifact and retained backup directory for manual recovery; do not discard those
 backups. Interrupted publication may also leave that directory. There is no
 automatic recovery command. Inspect the destination and backups before separately
 authorizing any manual recovery. These guarantees apply to `gentle-cc-install.sh`
-on Linux/macOS, **not** the separate Windows PowerShell installer.
+in Bash. PowerShell also verifies the full pair and uses staged backups with
+controlled-failure rollback; neither installer promises concurrent-path safety,
+pair atomicity, signal recovery, or crash safety.
 Authenticated `install.sh` downloads clean their staging on both child success
 and failure, preserving the child's exit status.
 
@@ -246,7 +283,7 @@ gentle-cc sync-all [args]   # official sync for other agents + Command Code
 `-agent`, `--agents`, or `-agents`, bare or with `=value`, including empty values,
 repeated selectors, and attempts to select `command-code` itself.
 This also applies with any help alias, dry-run,
-and after `--`. Rejection occurs before Python/state preflight, locking, builds,
+and after `--`. Rejection occurs before state preflight, locking, builds,
 either binary invocation, or any state writes: exit status **1**, empty stdout,
 and exactly this stderr line:
 
@@ -282,13 +319,36 @@ installed official binary's parser have not been verified.
 - `gentle-cc-release.sh` builds the **currently checked-out source**, including
   local changes; it does not pin or enforce a clean commit. Inspect that external
   checkout and record its commit, cleanliness and toolchain before packaging.
-  Wrapper bytes are also an input. Previously recorded six-target matching hashes
+  The distribution's wrapper Go source is also an input. Previously recorded six-target matching hashes
   have not been revalidated here; there is no universal reproducibility guarantee.
 - Installer fixture tests cover checksum rejection with fake artifacts; this is
   not proof of real release provenance or runtime behavior. Trust the source of
   the manifest as well as checking hashes.
 - Pin the source commit (`--ref`) or release tag in shared instructions. A tag or
   version string alone does not prove immutable, identical inputs.
+
+## Native wrapper regression checks
+
+Run the public executable suite and static checks from this distribution checkout:
+
+```bash
+GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go test ./... -v -count=1 -timeout=120s
+GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off go vet ./...
+```
+
+Tests build `./cmd/gentle-cc` and a separate Go fake companion in system temporary
+storage. Wrapper invocations use isolated homes and a tool search path without
+Python or Bash. They cover routing, selector/custom-home rejection, conservative
+help/dry-run classification, failure exits, schema validation, no-op and
+large-number preservation, atomic replacement, lock contention and guardian
+lifetime after invoking-process death. They do not execute the real companion or
+write user configuration. Go is a test/build dependency, not a release runtime
+dependency. See `internal/wrapper/*_test.go` for the native parity suite.
+
+Windows symlink tests may skip without privilege, and Control-Break delivery
+requires an attached console; unavailable checks remain **uncertified**, not
+passes. Linux/macOS runtime and real companion/global concurrency have not been
+certified by Windows fixtures or six-target cross-compilation.
 
 ## Installer regression checks
 
@@ -317,22 +377,14 @@ pwsh -NoProfile -File tests/installers.ps1
 ```
 
 The PowerShell fixtures use fake `gh` downloads and temporary destinations to
-check local/version selection, checksum and native-command failures, unchanged
-local artifacts, staging cleanup, directory/reparse-point destination rejection,
-and native invocation guidance with shared-state warnings.
+check complete-pair local/version selection, both checksums, native-command
+failures, unchanged local artifacts, staging cleanup, publication rollback,
+directory/reparse-point rejection for both executables, and native guidance.
 
-The help and wrapper state/locking suites still require Python 3; migrating the
-installer fixtures does not remove that runtime dependency:
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_help.py -v
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_wrapper.py -v
-bash -n gentle-cc gentle-cc-install.sh install.sh
-```
-
-None of these focused suites executes the separate future Linux probe. Run the
-Bash, PowerShell and Python suites independently; no Python test module delegates
-to the installer suites.
+Bash and PowerShell here test **installers**, not wrapper runtime dependencies.
+Run those suites independently of the native Go wrapper suite. Historical ODD
+logs record legacy Bash/Python evidence; they are not the current test commands.
+None of these suites certifies the separate future Linux probe.
 
 ## Publishing a release (for the maintainer)
 
@@ -342,18 +394,25 @@ not established here.
 
 1. In the **external gentle-ai companion checkout**, keep the adapter branch
    rebased on its upstream `origin/main` so guidance tracks the official release.
-   This does not mean rebasing this scripts-only distribution onto gentle-ai.
+   This does not mean rebasing this separate distribution module onto gentle-ai.
    Review upstream changes and verify the target runtimes before publication.
 2. Build artifacts (binaries + wrapper + manifest):
 
    ```bash
-   ./gentle-cc-release.sh --repo ~/dev/gentle-ai --version 4.3.1-cc.1 --out dist
+   ./gentle-cc-release.sh --repo ~/dev/gentle-ai --version <native-version> --out dist
    ```
 
-3. Publish them under a tag matching `--version`:
+   The script builds both modules with the same reproducibility flags for
+   Linux/macOS/Windows amd64/arm64 and includes all 12 native assets in
+   `checksums.txt`. The obsolete single-file `--wrapper PATH` override is rejected
+   (exit 2); it cannot represent six architecture-specific executables. No Bash
+   wrapper is copied into native release output. Always choose a new version;
+   do not replace the legacy `4.3.1-cc.1` release with incompatible assets.
+
+3. Only after a separate version/publication decision, publish under that tag:
 
    ```bash
-   gh release create 4.3.1-cc.1 dist/* --title 4.3.1-cc.1 --notes "Command Code companion 4.3.1-cc.1"
+   gh release create <native-version> dist/* --title <native-version> --notes "Native Command Code distribution"
    ```
 
 4. Share the authenticated clone + `./install.sh` instructions for this private
@@ -375,15 +434,22 @@ agent "command-code" is not supported in MVP
 
 The companion's `install` records `command-code` there. After mutating
 `install`/`sync` operations, the wrapper **removes only** `command-code` and the
-stale `commandcode` from `installed_agents`, preserving other agents and JSON
-fields. Cleanup writes a temporary file in the same directory, preserves the
-file mode, flushes and fsyncs the file, then atomically replaces `state.json`.
-Already-open readers retain the old file; this does not make the companion's
-own writes atomic or promise durability across every filesystem/power failure.
+stale `commandcode` from `installed_agents`, preserving other agents (including
+duplicates) and unrelated JSON bytes, including arbitrary-precision numbers.
+Missing state is not created by cleanup. If there is nothing to remove, cleanup
+does not rewrite the file or change its identity/mtime. Otherwise it writes a
+temporary file in the same directory, preserves permission bits, flushes and
+syncs the file, then atomically replaces `state.json` (Unix rename; Windows
+`ReplaceFileW`). Already-open compatible readers retain the old file; a Windows
+reader denying delete sharing can prevent replacement, which fails without a
+copy/delete fallback. This does not make the companion's own writes atomic or
+promise durability across every filesystem/power failure.
 
-Custom state homes (`GENTLE_AI_HOME`) are **unsupported by the wrapper**: its
-state reader, cleanup and lock use `~/.gentle-ai`. Mutating `install`, `sync`, and
-`sync-all` reject any nonempty `GENTLE_AI_HOME` before Python preflight, locking,
+The wrapper uses nonempty `HOME`, falling back to Go's `os.UserHomeDir()` (on
+Windows, `USERPROFILE`), for its default paths and `.gentle-ai` state directory.
+Custom state homes (`GENTLE_AI_HOME`) are **unsupported by the wrapper**.
+Mutating `install`, `sync`, and `sync-all` reject any nonempty `GENTLE_AI_HOME`
+before state preflight, locking,
 builds or binaries: exit status **1**, empty stdout, and exactly:
 
 ```text
@@ -394,35 +460,40 @@ Unset it before mutations (an empty value is accepted). Help/read-only routing
 is unchanged; this does not implement custom-home isolation. Conservatively
 classified calls, including ambiguous dry-runs, also reject the override.
 
-Before invoking a mutating binary, the wrapper checks for Python 3 and validates
-existing state (a JSON object with an optional `installed_agents` list of
-strings). Missing state is allowed; malformed JSON, invalid schema and I/O
-errors are reported rather than silently ignored. A companion failure retains
-its exit status if cleanup succeeds; a cleanup failure returns an error instead.
+Before invoking a mutating binary, the native guardian acquires the lock and
+validates existing state (a JSON object with an optional `installed_agents` list
+of strings). Missing state is allowed; malformed JSON, invalid schema and I/O
+errors fail with `gentle-cc: cannot clean shared state: <detail>` rather than
+being silently ignored. A companion failure retains its exit status if cleanup
+succeeds; a cleanup failure returns status 1 instead. An official sync failure
+returns status 1 with `gentle-cc: official sync failed`, without running the
+companion or cleanup.
 
-A persistent regular file at `~/.gentle-ai/gentle-cc.lock`, locked with Python's
-`fcntl.flock`, serializes wrapper mutations, including the **entire** `sync-all`
-operation and cleanup. A held lock or a legacy directory lock fails immediately:
+A persistent regular single-link file at `~/.gentle-ai/gentle-cc.lock`, locked
+with native `flock` on Linux/macOS or `LockFileEx` on Windows, serializes wrapper
+mutations, including the **entire** `sync-all` operation and cleanup. A held lock
+or a legacy directory lock fails immediately:
 `gentle-cc: shared state busy (gentle-cc.lock); see README recovery instructions`.
 Exit status is 1, stdout is empty, and shared state and binaries are untouched.
-Missing `fcntl.flock` reports exactly
-`gentle-cc: OS locking unavailable; requires Python 3 fcntl.flock on Linux/macOS`;
-other lock acquisition errors also fail closed. Filesystem support is required;
-use a locally controlled filesystem with working advisory locks.
+Symlinks/reparse points and hardlinks are rejected; lock acquisition fails closed.
+Other failures include `gentle-cc: cannot acquire shared-state OS lock; no mutation started`
+and `gentle-cc: cannot acquire shared-state lock; lock must be a regular single-link file`.
+Unsupported platforms report
+`gentle-cc: OS locking unavailable; supported platforms are Windows, Linux and macOS`.
+Use a locally controlled filesystem with working OS locks.
 
 The lock file remains after completion: **never unlink, replace, or recreate it**,
-even when idle (doing so splits contenders across different inodes). An independent
-Python supervisor retains the lock until the foreground operation shell exits;
-that shell also inherits the locked descriptor. Killing the invoking wrapper
-alone with SIGKILL does not free the lock while its operation continues. SIGTERM
-and SIGINT are forwarded to the operation's process group; the supervisor retains
-the lock while the shell waits for its foreground binary, even if that binary
-ignores termination. Normal exit releases the OS lock without deleting the file.
-A killed invocation may leave state needing cleanup; OS lock release is not a
-transaction or automatic state repair. Daemonized/background writers, deliberate
-closure of inherited descriptors, and killing the whole supervisor/operation tree
-are outside this guarantee. Do not use binaries that leave background writers.
-No recovery or lock migration runs automatically.
+even when idle (doing so splits contenders across different file identities).
+A separate native guardian owns the lock until foreground children finish and
+cleanup completes. Killing only the invoking wrapper does not release that lock;
+pipe EOF is not cancellation. Interrupt/termination requests are forwarded to the
+writer's process group (Unix signals; Windows Control-Break requires a console).
+The invoking process may exit before the writer finishes; the guardian keeps the
+lock even for a signal-ignoring writer. Normal guardian exit closes the lock
+without deleting its file. Killing the guardian or the entire process tree can
+interrupt cleanup; OS lock release is not a transaction or automatic state repair.
+Daemonized/background writers are outside this guarantee: do not use binaries
+that leave background writers. No recovery or lock migration runs automatically.
 
 **Do not run direct official or companion writes simultaneously with the
 wrapper or each other.** Neither external binary honors this wrapper-only lock;
@@ -438,7 +509,7 @@ aliases, option values, unknown options, positionals, and `--` take the locked
 preflight/cleanup path, even if the companion itself would only show help.
 
 For a sequence consisting only of `--dry-run`/`-dry-run` tokens, the **last value
-wins**, including mixed hyphens: `--dry-run -dry-run=false` requires Python,
+wins**, including mixed hyphens: `--dry-run -dry-run=false` requires state preflight,
 locking, and cleanup; `-dry-run=false --dry-run` skips locking and cleanup.
 Bare flags mean true; values must be attached with `=`. Go boolean spellings are
 supported: `1`, `t`, `T`, `true`, `TRUE`, `True` mean true; `0`, `f`, `F`, `false`,
@@ -449,7 +520,7 @@ The wrapper does not validate every command-specific option; the binary still
 parses the unchanged arguments and may reject them. A conservative path can
 create the persistent lock file and perform cleanup even for a binary dry-run.
 Straightforward informational invocations leave state untouched by the wrapper;
-`sync-all` still needs Python to read the other-agent list.
+`sync-all` still reads and validates state to obtain the other-agent list.
 Dry-run can hide unsupported-agent errors because it does not build adapters;
 verify compatibility with a real `sync`.
 
@@ -458,7 +529,7 @@ verify compatibility with a real `sync`.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `GENTLE_CC_REPO` | `~/dev/gentle-ai` | Branch checkout used to build the companion. |
-| `GENTLE_CC_BIN` | `~/.local/bin/gentle-ai-cc` | Companion binary path. |
+| `GENTLE_CC_BIN` | Unix: `~/.local/bin/gentle-ai-cc`; Windows native: sibling `gentle-ai-cc.exe` | Companion binary path override. |
 | `GENTLE_AI_BIN` | `gentle-ai` | Official binary used by `sync-all`. |
 | `GENTLE_AI_HOME` | Unset | Custom state home unsupported by wrapper mutations; any nonempty value is rejected. |
 | `GENTLE_CC_DEST` | Bash: `~/.local/bin`; PowerShell: `$env:LOCALAPPDATA\gentle-cc` | Installer destination; does not change wrapper lookup or `PATH`. |
@@ -489,8 +560,9 @@ verify compatibility with a real `sync`.
   `gentle-cc` for Command Code.
 - Official `sync` fails `not supported in MVP`: run any `gentle-cc sync`/`install`
   (it cleans state) or edit `~/.gentle-ai/state.json` manually.
-- `python3 required for shared-state cleanup`: install Python 3 and ensure it is
-  on `PATH` before running a mutating wrapper command.
+- `python3 required for shared-state cleanup`: you are running the legacy wrapper,
+  not `./cmd/gentle-cc`'s native executable. Use a source-built native pair or a
+  separately prepared native release; the old default release is incompatible.
 - `cannot clean shared state`: inspect and repair `~/.gentle-ai/state.json`;
   invalid existing state is rejected before either mutating binary runs.
 - `shared state busy (gentle-cc.lock)`: wait for the active operation (it may
@@ -504,8 +576,10 @@ verify compatibility with a real `sync`.
   the confirmed empty legacy directory (never recursive removal). If quiescence
   cannot be proved, leave it in place. Then let the next wrapper create the OS
   lock file. No real user lock recovery is performed by the tests or installer.
-- `OS locking unavailable` / `cannot acquire shared-state OS lock`: use supported
-  Linux/macOS Bash and Python 3 with working `fcntl.flock`; do not bypass the lock.
+- `OS locking unavailable` / `cannot acquire shared-state OS lock`: use the native
+  wrapper on Windows, Linux or macOS with working OS locks and a controlled,
+  writable state directory. Do not bypass the lock. Linked state/lock paths or
+  hardlinked lock files require investigation, not automatic replacement.
 - `checksum mismatch`: the download is corrupted or the manifest is stale — do
   not install; re-fetch from the pinned release.
 - Companion build fails: confirm `--ref` exists and Go is on `PATH`.

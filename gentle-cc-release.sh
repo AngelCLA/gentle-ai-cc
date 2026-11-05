@@ -3,7 +3,7 @@
 # artifacts plus the wrapper and a checksum manifest, ready to attach to a release.
 #
 # Usage:
-#   gentle-cc-release.sh [--repo DIR] [--version V] [--out DIR] [--wrapper PATH]
+#   gentle-cc-release.sh [--repo DIR] [--version V] [--out DIR]
 #
 # Reproducibility: -trimpath and -buildvcs=false make the binary independent of
 # the build directory and VCS state. The version string is injected from --version
@@ -11,29 +11,31 @@
 #
 # Produces in --out:
 #   gentle-ai-cc_<V>_<os>_<arch>[.exe]   companion binaries (6 platforms)
-#   gentle-cc                            wrapper (platform-independent)
+#   gentle-cc_<V>_<os>_<arch>[.exe]      native wrappers (6 platforms)
+# --wrapper PATH is obsolete: no universal Bash wrapper override is accepted.
+# 4.3.1-cc.1 is a legacy release; use an explicitly chosen new native version.
 #   checksums.txt                        sha256 of every artifact above
 set -euo pipefail
 
 REPO="${GENTLE_CC_REPO:-$HOME/dev/gentle-ai}"
 VERSION="4.3.1-cc.1"
 OUT="$(pwd)/dist"
-WRAPPER_SRC="$(cd "$(dirname "$0")" && pwd)/gentle-cc"
+DISTRIBUTION="$(cd "$(dirname "$0")" && pwd)"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO="$2"; shift 2 ;;
     --version) VERSION="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
-    --wrapper) WRAPPER_SRC="$2"; shift 2 ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    --wrapper) echo "release: --wrapper is obsolete; native wrappers are built from this distribution module for each target" >&2; exit 2 ;;
+    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
 [ -d "$REPO" ] || { echo "repo not found: $REPO" >&2; exit 1; }
 command -v go >/dev/null 2>&1 || { echo "go required" >&2; exit 1; }
-[ -f "$WRAPPER_SRC" ] || { echo "wrapper not found: $WRAPPER_SRC" >&2; exit 1; }
+[ -f "$DISTRIBUTION/go.mod" ] || { echo "wrapper module not found: $DISTRIBUTION/go.mod" >&2; exit 1; }
 
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
@@ -62,12 +64,15 @@ for t in $targets; do
       -ldflags "-s -w -X main.version=${VERSION}" \
       -o "$OUT/$bin" ./cmd/gentle-ai )
   manifest_line "$OUT" "$bin" >> "$OUT/checksums.txt"
+  wrapper="gentle-cc_${VERSION}_${os}_${arch}"
+  [ "$os" != windows ] || wrapper="${wrapper}.exe"
+  ( cd "$DISTRIBUTION" && \
+    GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+    go build -trimpath -buildvcs=false \
+      -ldflags "-s -w -X main.version=${VERSION}" \
+      -o "$OUT/$wrapper" ./cmd/gentle-cc )
+  manifest_line "$OUT" "$wrapper" >> "$OUT/checksums.txt"
 done
-
-echo "copying wrapper ..."
-cp "$WRAPPER_SRC" "$OUT/gentle-cc"
-chmod +x "$OUT/gentle-cc"
-manifest_line "$OUT" "gentle-cc" >> "$OUT/checksums.txt"
 
 echo
 echo "artifacts in $OUT:"
