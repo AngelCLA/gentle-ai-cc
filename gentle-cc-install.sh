@@ -94,7 +94,7 @@ sha256_of() {
 verify_against() {
   local file="$1" name="$2" manifest="$3"
   local expected actual
-  expected="$(grep -E "[[:space:]]\*?${name}\$" "$manifest" | awk '{print $1}')" || \
+  expected="$(grep -E "[[:space:]]\*?${name}[[:space:]]*\$" "$manifest" | awk '{print $1}')" || \
     die "no checksum entry for $name"
   [ -n "$expected" ] || die "no checksum entry for $name"
   actual="$(sha256_of "$file")"
