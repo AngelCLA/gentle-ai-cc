@@ -45,6 +45,7 @@ fixture() {
   export TOOL_LOG="$F/tool-log" TRANSPORT_LOG="$F/transport-log"
   export FIXTURE_SOURCE="$F/external module with spaces"
   export FIXTURE_DISTRIBUTION="$F/distribution with spaces"
+  export FIXTURE_RELEASE="$F/release"
   export FAIL_COUNT="$F/failure-count" FAIL_KIND='' FAIL_AT=0 FAIL_RESTORE=0 CHANGE_DISTRIBUTION=0
   mkdir -p "$HOME" "$TMPDIR" "$GENTLE_CC_DEST" "$F/release" "$F/tools" "$FIXTURE_SOURCE" "$FIXTURE_DISTRIBUTION"
   cp "$ROOT/gentle-cc-install.sh" "$FIXTURE_DISTRIBUTION/"
@@ -67,7 +68,11 @@ fixture() {
 #!/usr/bin/env bash
 set -euo pipefail
 [ "$#" = 4 ] && [ "$1" = -fsSL ] && [ "$3" = -o ] || exit 90
-case "$2" in file://*) source=${2#file://} ;; *) exit 91 ;; esac
+case "$2" in
+    file://*) source=${2#file://} ;;
+    https://github.com/*/releases/download/*/*) source="$FIXTURE_RELEASE/${2##*/}" ;;
+    *) exit 91 ;;
+  esac
 printf '%s\n' "${source##*/}" >> "$TRANSPORT_LOG"
 [ -f "$source" ] || exit 22
 cp "$source" "$4"
@@ -168,11 +173,11 @@ installer_help_expected() {
 #       The pinned source currently requires Go 1.25.10 or newer.
 #       A missing distribution Go module is an error unless --no-wrapper is given.
 #       Native assets: gentle-cc_<version>_<os>_<arch>[.exe], not legacy gentle-cc.
-#       4.3.1-cc.1 is legacy; explicitly select a prepared native release version.
+#       4.3.1-cc.2 is the native release; 4.3.1-cc.1 is the legacy wrapper.
 #
 # Options:
 #   --ref REF       Source commit/tag (default the pinned commit).
-#   --version V     Release asset version / source build version (default 4.3.1-cc.1).
+#   --version V     Release asset version / source build version (default 4.3.1-cc.2).
 #   --no-wrapper    Install only the binary; leave any existing wrapper unchanged.
 #   --sha-only      Still installs; suppresses final next-step guidance only.
 # GENTLE_CC_DEST overrides the default destination below; it does not update PATH.
@@ -215,8 +220,9 @@ installer_help_checks() {
 # Transport/build fixtures are platform-independent bytes. Pin the Unix matrix;
 # a separate Windows selection case below checks native executable names.
 os=linux; arch=amd64; ext=''
-asset="gentle-ai-cc_4.3.1-cc.1_${os}_${arch}${ext}"
-wrapper_asset="gentle-cc_4.3.1-cc.1_${os}_${arch}${ext}"
+version='4.3.1-cc.2'
+asset="gentle-ai-cc_${version}_${os}_${arch}${ext}"
+wrapper_asset="gentle-cc_${version}_${os}_${arch}${ext}"
 installer_help_checks
 printf 'mode probe\n' > "$SUITE/mode-probe"
 chmod 640 "$SUITE/mode-probe"
@@ -459,16 +465,44 @@ CHILD
   export CHILD_STATUS="$child_status" GENTLE_CC_OWNER_REPO=fixture/repo
   run "$FIXTURE_DISTRIBUTION/install.sh"
   eq "$status" "$child_status" 'authenticated child status'
-  printf 'downloading release 4.3.1-cc.1 from fixture/repo via gh ...\nchild stdout\n' > "$F/expected-out"
+  printf 'downloading release %s from fixture/repo via gh ...\nchild stdout\n' "$version" > "$F/expected-out"
   printf 'child stderr\n' > "$F/expected-err"
   output_is; preserved; passed=$((passed + 1))
 done
+# gh absent or unauthenticated: the public HTTPS URL needs no authentication.
+fixture
+unset GENTLE_CC_OWNER_REPO
+printf '#!/usr/bin/env bash\ncase "$1" in auth) exit 1 ;; *) exit 90 ;; esac\n' > "$F/tools/gh"
+chmod +x "$F/tools/gh"
+cp "$ROOT/install.sh" "$FIXTURE_DISTRIBUTION/install.sh"
+run "$FIXTURE_DISTRIBUTION/install.sh" --no-wrapper --sha-only
+eq "$status" 0 'public release exit'
+{ printf 'downloading release %s from https://github.com/AngelCLA/gentle-ai-cc/releases/download/%s ...\n' "$version" "$version"
+  release_prefix binary; success_tail quiet; } > "$F/expected-out"
+: > "$F/expected-err"; output_is
+bytes "$GENTLE_CC_DEST/gentle-ai-cc" "$F/new-binary"
+bytes "$GENTLE_CC_DEST/gentle-cc" "$F/old-wrapper"
+empty_stage; passed=$((passed + 1))
+# A missing public release keeps the destination intact and honors the mirror override.
+fixture
+export GENTLE_CC_OWNER_REPO=fixture/mirror
+printf '#!/usr/bin/env bash\ncase "$1" in auth) exit 1 ;; *) exit 90 ;; esac\n' > "$F/tools/gh"
+chmod +x "$F/tools/gh"
+cp "$ROOT/install.sh" "$FIXTURE_DISTRIBUTION/install.sh"
+rm -f "$F/release/checksums.txt"
+run "$FIXTURE_DISTRIBUTION/install.sh"
+eq "$status" 1 'missing public release exit'
+{ printf 'downloading release %s from https://github.com/fixture/mirror/releases/download/%s ...\n' "$version" "$version"
+  platform_line; } > "$F/expected-out"
+expected_error 'checksums.txt download failed'
+output_is; preserved; passed=$((passed + 1))
+unset GENTLE_CC_OWNER_REPO
 # Windows names are shared by staging/publication/rollback, not just downloads.
 for install_mode in release source; do
   fixture
   printf '#!/usr/bin/env bash\ncase "$1" in -s) echo MINGW64_NT ;; -m) echo x86_64 ;; esac\n' > "$F/tools/uname"
-  win_asset='gentle-ai-cc_4.3.1-cc.1_windows_amd64.exe'
-  win_wrapper='gentle-cc_4.3.1-cc.1_windows_amd64.exe'
+  win_asset="gentle-ai-cc_${version}_windows_amd64.exe"
+  win_wrapper="gentle-cc_${version}_windows_amd64.exe"
   cp "$F/new-binary" "$F/release/$win_asset"
   cp "$F/new-wrapper" "$F/release/$win_wrapper"
   printf '%s  %s\n%s  %s\n' "$(hash "$F/new-binary")" "$win_asset" "$(hash "$F/new-wrapper")" "$win_wrapper" > "$F/release/checksums.txt"
@@ -490,7 +524,7 @@ for install_mode in release source; do
   else source_install --sha-only; source_prefix > "$F/expected-out"; fi
   eq "$status" 1 'Windows second rename failure'
   expected_error 'cannot replace gentle-cc.exe'; output_is; preserved
-  os=linux; asset='gentle-ai-cc_4.3.1-cc.1_linux_amd64'; wrapper_asset='gentle-cc_4.3.1-cc.1_linux_amd64'
+  os=linux; asset="gentle-ai-cc_${version}_linux_amd64"; wrapper_asset="gentle-cc_${version}_linux_amd64"
   passed=$((passed + 1))
 done
 
