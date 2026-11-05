@@ -4,9 +4,10 @@
 # Private repository note: anonymous curl / public release downloads do not work
 # against a private repo. This script therefore prefers, in order:
 #
-#   1. a local ./dist directory (artifacts from gentle-cc-release.sh)
-#   2. an authenticated download of the release via `gh`
-#   3. building from source (GENTLE_CC_SOURCE / GENTLE_CC_REF)
+#   1. an explicit source override (GENTLE_CC_SOURCE / GENTLE_CC_REF)
+#   2. local ./dist/checksums.txt (artifacts from gentle-cc-release.sh)
+#   3. an authenticated download of the release via `gh`
+# There is no automatic source fallback if release selection/download fails.
 #
 # Environment:
 #   GENTLE_CC_VERSION   release tag/prefix (default 4.3.1-cc.1)
@@ -42,8 +43,10 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     echo "release $VERSION not found; build from source with GENTLE_CC_SOURCE=<git-url>" >&2
     exit 1
   }
-  exec "$here/gentle-cc-install.sh" --from-release "file://$tmp" \
-    --version "$VERSION" "$@"
+  status=0
+  "$here/gentle-cc-install.sh" --from-release "file://$tmp" \
+    --version "$VERSION" "$@" || status=$?
+  exit "$status"  # Run the parent's EXIT cleanup on child success or failure.
 fi
 
 echo "no local dist/ and no authenticated gh; set GENTLE_CC_SOURCE=<git-url> to build from source" >&2
