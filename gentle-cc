@@ -83,11 +83,18 @@ clean_state() { state_action clean; }
 official_agents_from_state() { state_action agents; }
 
 informational() {
-  local arg
+  local arg dry_run=false
   for arg in "$@"; do
-    case "$arg" in --help|-h|--dry-run|--dry-run=true) return 0 ;; esac
+    case "$arg" in
+      --help|-h) return 0 ;;
+      # Match Go boolean spellings; repeated flags use the last value.
+      --dry-run|--dry-run=1|--dry-run=t|--dry-run=T|--dry-run=true|--dry-run=TRUE|--dry-run=True)
+        dry_run=true ;;
+      --dry-run=0|--dry-run=f|--dry-run=F|--dry-run=false|--dry-run=FALSE|--dry-run=False)
+        dry_run=false ;;
+    esac
   done
-  return 1
+  [ "$dry_run" = true ]
 }
 
 begin_mutation() {
@@ -148,8 +155,9 @@ gentle-cc — Command Code companion for gentle-ai
   gentle-cc sync-all[args]   Official sync for other agents + Command Code
 
 Mutating install/sync/sync-all require Python 3 and an exclusive wrapper lock.
---help/-h/--dry-run/--dry-run=true are forwarded without cleanup or locking.
---dry-run=false still mutates. Do not run direct binaries concurrently.
+Help (-h/--help) or effective --dry-run=true skips cleanup and locking.
+Repeated --dry-run flags: last value wins (Go boolean spellings; bare = true).
+Effective --dry-run=false still mutates. Do not run direct binaries concurrently.
 See README for shared-state limitations and stale-lock recovery.
 
 Env:

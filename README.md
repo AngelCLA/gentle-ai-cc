@@ -205,10 +205,14 @@ wrapper or each other.** Neither external binary honors this wrapper-only lock;
 atomic cleanup cannot prevent their lost updates. `sync-all` runs official sync
 first and companion sync second, but is not a transaction with rollback.
 
-`--help`, `-h`, `--dry-run` and `--dry-run=true` are forwarded without wrapper
-cleanup or locking. `--dry-run=false` remains mutating. These informational
-invocations leave shared state untouched by the wrapper; the binary determines
-its own behavior. `sync-all` still needs Python to read the other-agent list.
+`--help` and `-h` always skip wrapper cleanup and locking. For `--dry-run`, the
+**last value wins**: `--dry-run --dry-run=false` is mutating and requires Python
+and the lock; `--dry-run=false --dry-run=true` skips cleanup and locking. A bare
+`--dry-run` means true. Go boolean spellings are supported: `1`, `t`, `T`, `true`,
+`TRUE`, `True` mean true; `0`, `f`, `F`, `false`, `FALSE`, `False` mean false.
+Arguments are forwarded unchanged. Informational invocations leave shared state
+untouched by the wrapper; the binary determines its own behavior. `sync-all`
+still needs Python to read the other-agent list.
 Dry-run can hide unsupported-agent errors because it does not build adapters;
 verify compatibility with a real `sync`.
 

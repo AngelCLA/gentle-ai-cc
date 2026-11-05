@@ -101,6 +101,66 @@ class WrapperTests(unittest.TestCase):
                            'sync\n--agent\ncommand-code\n--dry-run=false\n')
         self.assertEqual(json.loads(self.state.read_text()), {'installed_agents': ['pi'], 'other': 42})
 
+    def dry_run_stdout(self, command, flags):
+        suffix = ''.join(f'{flag}\n' for flag in flags)
+        if command == 'sync-all':
+            return (f'Official sync: pi\nsync\n--agent\npi\n{suffix}'
+                    f'Companion sync: command-code\nsync\n--agent\ncommand-code\n{suffix}')
+        return f'{command}\n--agent\ncommand-code\n{suffix}'
+
+    def test_repeated_dry_run_effective_false_requires_preflight_lock_and_cleanup(self):
+        empty = self.home / 'empty'
+        empty.mkdir()
+        flag_pairs = [('--dry-run', '--dry-run=false')]
+        flag_pairs += [('--dry-run=true', f'--dry-run={value}')
+                       for value in ('false', '0', 'f', 'F', 'FALSE', 'False')]
+        for command in ('sync', 'install', 'sync-all'):
+            for flags in flag_pairs:
+                with self.subTest(command=command, flags=flags), tempfile.TemporaryDirectory() as home:
+                    state = Path(home) / '.gentle-ai/state.json'
+                    state.parent.mkdir()
+                    state.write_text(json.dumps(self.original))
+                    before = state.stat().st_mtime_ns
+                    called = Path(home) / 'called'
+                    lock = state.parent / 'gentle-cc.lock'
+                    self.assert_result(self.run_wrapper(command, *flags, HOME=home, PATH=str(empty)),
+                                       1, '', 'gentle-cc: python3 required for shared-state cleanup\n')
+                    self.assertFalse(called.exists())
+                    self.assertFalse(lock.exists())
+                    self.assertEqual(state.read_text(), json.dumps(self.original))
+                    self.assertEqual(state.stat().st_mtime_ns, before)
+                    lock.mkdir()
+                    self.assert_result(self.run_wrapper(command, *flags, HOME=home), 1, '',
+                                       'gentle-cc: shared state busy (gentle-cc.lock); see README recovery instructions\n')
+                    self.assertFalse(called.exists())
+                    self.assertTrue(lock.is_dir())
+                    self.assertEqual(state.read_text(), json.dumps(self.original))
+                    self.assertEqual(state.stat().st_mtime_ns, before)
+                    lock.rmdir()
+                    self.assert_result(self.run_wrapper(command, *flags, HOME=home), 0,
+                                       self.dry_run_stdout(command, flags))
+                    self.assertTrue(called.exists())
+                    self.assertEqual(json.loads(state.read_text()), {'installed_agents': ['pi'], 'other': 42})
+                    self.assertFalse(lock.exists())
+
+    def test_repeated_dry_run_effective_true_and_help_do_not_mutate(self):
+        flag_pairs = [('--dry-run=false', '--dry-run')]
+        flag_pairs += [('--dry-run=false', f'--dry-run={value}')
+                       for value in ('true', '1', 't', 'T', 'TRUE', 'True')]
+        flag_pairs += [(help_flag, '--dry-run=true', '--dry-run=false')
+                       for help_flag in ('--help', '-h')]
+        lock = self.state.parent / 'gentle-cc.lock'
+        lock.mkdir()
+        before = self.state.stat().st_mtime_ns
+        for command in ('sync', 'install', 'sync-all'):
+            for flags in flag_pairs:
+                with self.subTest(command=command, flags=flags):
+                    self.assert_result(self.run_wrapper(command, *flags), 0,
+                                       self.dry_run_stdout(command, flags))
+                    self.assertEqual(self.state.read_text(), json.dumps(self.original))
+                    self.assertEqual(self.state.stat().st_mtime_ns, before)
+                    self.assertTrue(lock.is_dir())
+
     def test_schema_rejection_and_sync_all_preflight(self):
         for content in ('[]', '{"installed_agents": null}', '{"installed_agents": [42]}'):
             self.state.write_text(content)
