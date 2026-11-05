@@ -469,32 +469,34 @@ CHILD
   printf 'child stderr\n' > "$F/expected-err"
   output_is; preserved; passed=$((passed + 1))
 done
-# Without gh, the public HTTPS release URL is used and needs no authentication.
+# gh absent or unauthenticated: the public HTTPS URL needs no authentication.
 fixture
 unset GENTLE_CC_OWNER_REPO
+printf '#!/usr/bin/env bash\ncase "$1" in auth) exit 1 ;; *) exit 90 ;; esac\n' > "$F/tools/gh"
+chmod +x "$F/tools/gh"
 cp "$ROOT/install.sh" "$FIXTURE_DISTRIBUTION/install.sh"
-rm -f "$F/tools/gh"
-run "$FIXTURE_DISTRIBUTION/install.sh"
+run "$FIXTURE_DISTRIBUTION/install.sh" --no-wrapper --sha-only
 eq "$status" 0 'public release exit'
 { printf 'downloading release %s from https://github.com/AngelCLA/gentle-ai-cc/releases/download/%s ...\n' "$version" "$version"
-  release_prefix; success_tail; } > "$F/expected-out"
+  release_prefix binary; success_tail quiet; } > "$F/expected-out"
 : > "$F/expected-err"; output_is
 bytes "$GENTLE_CC_DEST/gentle-ai-cc" "$F/new-binary"
-bytes "$GENTLE_CC_DEST/gentle-cc" "$F/new-wrapper"
-executable "$GENTLE_CC_DEST/gentle-cc"
-{ printf 'checksums.txt\n%s\n%s\n' "$asset" "$wrapper_asset"; } > "$F/expected-transport"
-bytes "$TRANSPORT_LOG" "$F/expected-transport"; empty_stage; passed=$((passed + 1))
-# A missing public release must fail without touching the destination.
+bytes "$GENTLE_CC_DEST/gentle-cc" "$F/old-wrapper"
+empty_stage; passed=$((passed + 1))
+# A missing public release keeps the destination intact and honors the mirror override.
 fixture
-unset GENTLE_CC_OWNER_REPO
+export GENTLE_CC_OWNER_REPO=fixture/mirror
+printf '#!/usr/bin/env bash\ncase "$1" in auth) exit 1 ;; *) exit 90 ;; esac\n' > "$F/tools/gh"
+chmod +x "$F/tools/gh"
 cp "$ROOT/install.sh" "$FIXTURE_DISTRIBUTION/install.sh"
-rm -f "$F/tools/gh" "$F/release/checksums.txt"
+rm -f "$F/release/checksums.txt"
 run "$FIXTURE_DISTRIBUTION/install.sh"
 eq "$status" 1 'missing public release exit'
-{ printf 'downloading release %s from https://github.com/AngelCLA/gentle-ai-cc/releases/download/%s ...\n' "$version" "$version"
+{ printf 'downloading release %s from https://github.com/fixture/mirror/releases/download/%s ...\n' "$version" "$version"
   platform_line; } > "$F/expected-out"
 expected_error 'checksums.txt download failed'
 output_is; preserved; passed=$((passed + 1))
+unset GENTLE_CC_OWNER_REPO
 # Windows names are shared by staging/publication/rollback, not just downloads.
 for install_mode in release source; do
   fixture

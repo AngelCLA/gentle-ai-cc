@@ -34,22 +34,23 @@ if [ -f "$here/dist/checksums.txt" ]; then
     --version "$VERSION" "$@"
 fi
 
-# 3. Authenticated download via gh (works for private mirrors as well).
+# 3. Authenticated download via gh, falling back to the public URL.
+base="https://github.com/$OWNER_REPO/releases/download/$VERSION"
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   echo "downloading release $VERSION from $OWNER_REPO via gh ..."
-  gh release download "$VERSION" -R "$OWNER_REPO" -D "$tmp" || {
-    echo "release $VERSION not found; build from source with GENTLE_CC_SOURCE=<git-url>" >&2
-    exit 1
-  }
-  status=0
-  "$here/gentle-cc-install.sh" --from-release "file://$tmp" \
-    --version "$VERSION" "$@" || status=$?
-  exit "$status"  # Run the parent's EXIT cleanup on child success or failure.
+  if gh release download "$VERSION" -R "$OWNER_REPO" -D "$tmp"; then
+    status=0
+    "$here/gentle-cc-install.sh" --from-release "file://$tmp" \
+      --version "$VERSION" "$@" || status=$?
+    exit "$status"  # Run the parent's EXIT cleanup on child success or failure.
+  fi
+  rm -rf "$tmp"
+  trap - EXIT
+  echo "gh release download failed; trying the public release URL" >&2
 fi
 
 # 4. Public HTTPS release download through the checksum-verifying installer.
-base="https://github.com/$OWNER_REPO/releases/download/$VERSION"
 echo "downloading release $VERSION from $base ..."
 exec "$here/gentle-cc-install.sh" --from-release "$base" --version "$VERSION" "$@"

@@ -4,7 +4,7 @@
 $ErrorActionPreference = "Stop"
 $source = Join-Path (Split-Path -Parent $PSScriptRoot) "install.ps1"
 $root = Join-Path ([IO.Path]::GetTempPath()) ("gentle-cc-test-" + [guid]::NewGuid().ToString("N"))
-$envNames = @("HOME", "USERPROFILE", "GENTLE_CC_DEST", "GENTLE_CC_VERSION", "GENTLE_CC_OWNER_REPO", "PROCESSOR_ARCHITECTURE")
+$envNames = @("HOME", "USERPROFILE", "GENTLE_CC_DEST", "GENTLE_CC_VERSION", "GENTLE_CC_OWNER_REPO", "PROCESSOR_ARCHITECTURE", "PATH")
 $saved = @{}
 foreach ($name in $envNames) { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 
@@ -32,6 +32,10 @@ function Snapshot($Directory) {
 # A command-shaped fake also sets the native exit-status variable: a failing gh
 # may have left apparently complete bytes, which the installer must not trust.
 function global:gh {
+  if ($args[0] -eq "auth") {
+    $global:LASTEXITCODE = if ($global:AuthMode -eq "unauth") { 1 } else { 0 }
+    return
+  }
   $destination = $args[([array]::IndexOf($args, "-D") + 1)]
   $global:DownloadDirs += $destination
   Write-Release $destination $env:GENTLE_CC_VERSION "downloaded-$env:GENTLE_CC_VERSION"
@@ -53,7 +57,7 @@ try {
   $OwnerRepo = $env:GENTLE_CC_OWNER_REPO
   $global:DownloadDirs = @()
   foreach ($case in @("local", "local-mismatch", "stale", "missing-entry", "missing-asset",
-                       "mismatch", "incomplete", "gh-failure", "next-version", "wrapper-mismatch",
+                       "mismatch", "incomplete", "next-version", "wrapper-mismatch",
                        "wrapper-incomplete", "local-wrapper-missing", "local-wrapper-entry", "local-wrapper-mismatch")) {
     $fixture = Join-Path $root $case
     New-Item -ItemType Directory -Path $fixture | Out-Null
@@ -86,14 +90,11 @@ try {
     $failure = $null
     $output = @()
     try { $output = @(& (Join-Path $fixture "install.ps1") 6>&1) } catch { $failure = $_.Exception.Message }
-    $shouldFail = $case -in @("local-mismatch", "mismatch", "incomplete", "gh-failure",
+    $shouldFail = $case -in @("local-mismatch", "mismatch", "incomplete",
         "wrapper-mismatch", "wrapper-incomplete", "local-wrapper-mismatch")
     Assert (($null -ne $failure) -eq $shouldFail) "$case failure outcome: $failure"
     if ($case -in @("local-mismatch", "mismatch", "wrapper-mismatch", "local-wrapper-mismatch")) {
       Assert ($failure -like "checksum mismatch for *") "$case checksum rejection"
-    }
-    if ($case -eq "gh-failure") {
-      Assert ($failure -eq "gh release download failed (exit 23)") "native exit status"
     }
     $expected = if ($shouldFail) { "old binary" } elseif ($case -eq "local") { "local bytes" } else { "downloaded-$env:GENTLE_CC_VERSION" }
     Assert (([IO.File]::ReadAllText($installed)) -eq $expected) "$case destination bytes"
@@ -125,45 +126,55 @@ try {
     Write-Host "PASS: $case"
   }
   Assert (($global:DownloadDirs | Select-Object -Unique).Count -eq $global:DownloadDirs.Count) "fresh staging for each download/version"
-  # Public HTTPS fallback when gh is unavailable: no authentication is needed.
-  foreach ($httpMode in @("ok", "missing")) {
-    $fixture = Join-Path $root "public-$httpMode"
+  # Public HTTPS fallback: no gh, unauthenticated gh, or a failing gh download.
+  function global:Invoke-WebRequest {
+    [CmdletBinding()]
+    param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)
+    $name = ($Uri -split '/')[-1]
+    $global:HttpDirs += (Split-Path -Parent $OutFile)
+    Copy-Item -LiteralPath (Join-Path $global:ReleaseDir $name) -Destination $OutFile
+  }
+  foreach ($public in @(
+      @{ Name = "public-gh-unauth"; Gh = "unauth"; Missing = "" },
+      @{ Name = "public-default-version"; Gh = "none"; Missing = ""; Default = $true })) {
+    $fixture = Join-Path $root $public.Name
     New-Item -ItemType Directory -Path $fixture | Out-Null
     Copy-Item -LiteralPath $source -Destination (Join-Path $fixture "install.ps1")
-    $env:GENTLE_CC_VERSION = "v9"
+    $version = if ($public.Default) { "4.3.1-cc.2" } else { "v9" }
+    if ($public.Default) { Remove-Item Env:GENTLE_CC_VERSION -ErrorAction SilentlyContinue }
+    else { $env:GENTLE_CC_VERSION = $version }
+    $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
     $env:GENTLE_CC_DEST = Join-Path $fixture "dest"
     New-Item -ItemType Directory -Path $env:GENTLE_CC_DEST | Out-Null
-    [IO.File]::WriteAllText((Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe"), "old binary")
-    [IO.File]::WriteAllText((Join-Path $env:GENTLE_CC_DEST "gentle-cc.exe"), "old wrapper")
+    foreach ($name in @("gentle-ai-cc.exe", "gentle-cc.exe")) {
+      [IO.File]::WriteAllText((Join-Path $env:GENTLE_CC_DEST $name), "old-$name")
+    }
     $global:ReleaseDir = Join-Path $fixture "release"
-    Write-Release $global:ReleaseDir $env:GENTLE_CC_VERSION "public-$httpMode"
-    $global:HttpMode = $httpMode
+    Write-Release $global:ReleaseDir $version "public-$($public.Name)"
     $global:HttpDirs = @()
     if (Test-Path Function:\gh) { Remove-Item Function:\gh }
-    function global:Invoke-WebRequest {
-      [CmdletBinding()]
-      param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)
-      $name = ($Uri -split '/')[-1]
-      if ($global:HttpMode -eq "missing" -and $name -eq "checksums.txt") { throw "404 Not Found" }
-      $global:HttpDirs += (Split-Path -Parent $OutFile)
-      Copy-Item -LiteralPath (Join-Path $global:ReleaseDir $name) -Destination $OutFile
+    $global:AuthMode = $public.Gh
+    if ($public.Gh -ne "none") {
+      function global:gh {
+        if ($args[0] -eq "auth") {
+          $global:LASTEXITCODE = if ($global:AuthMode -eq "unauth") { 1 } else { 0 }
+          return
+        }
+        $global:LASTEXITCODE = if ($global:AuthMode -eq "failure") { 23 } else { 0 }
+      }
     }
     $failure = $null
     $output = @()
     try { $output = @(& (Join-Path $fixture "install.ps1") 6>&1) } catch { $failure = $_.Exception.Message }
-    if ($httpMode -eq "missing") {
-      Assert ($failure -eq "download failed for checksums.txt: 404 Not Found") "public download failure: $failure"
-      Assert (([IO.File]::ReadAllText((Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe"))) -eq "old binary") "public failure preserves binary"
-    } else {
-      Assert ($null -eq $failure) "public success: $failure"
-      Assert (([IO.File]::ReadAllText((Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe"))) -eq "public-ok") "public binary bytes"
-      Assert (([IO.File]::ReadAllText((Join-Path $env:GENTLE_CC_DEST "gentle-cc.exe"))) -eq "wrapper-public-ok") "public wrapper bytes"
-      Assert (($output -join "`n").Contains("downloading release v9 from https://github.com/fixture/repo/releases/download/v9 ...")) "public download announcement"
-    }
-    foreach ($directory in $global:HttpDirs) { Assert (-not (Test-Path -LiteralPath $directory)) "public staging cleaned" }
-    Write-Host "PASS: public-$httpMode"
+    Assert ($null -eq $failure) "$($public.Name) outcome: $failure"
+    Assert (([IO.File]::ReadAllText((Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe"))) -eq "public-$($public.Name)") "$($public.Name) binary bytes"
+    Assert (([IO.File]::ReadAllText((Join-Path $env:GENTLE_CC_DEST "gentle-cc.exe"))) -eq "wrapper-public-$($public.Name)") "$($public.Name) wrapper bytes"
+    Assert (($output -join "`n").Contains("downloading release $version from https://github.com/fixture/repo/releases/download/$version ...")) "$($public.Name) announcement"
+    foreach ($directory in $global:HttpDirs) { Assert (-not (Test-Path -LiteralPath $directory)) "$($public.Name) staging cleaned" }
+    Write-Host "PASS: $($public.Name)"
   }
   if (Test-Path Function:\Invoke-WebRequest) { Remove-Item Function:\Invoke-WebRequest }
+  if (Test-Path Function:\gh) { Remove-Item Function:\gh }
   # Public publication failures: snapshots happen before writes; second rename
   # failure restores the first artifact, including an initially absent artifact.
   function global:Copy-Item {

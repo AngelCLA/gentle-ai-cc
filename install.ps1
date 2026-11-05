@@ -61,16 +61,27 @@ try {
         (Get-ExpectedChecksum $distDir $name))) { $complete = $false }
   }
   if (-not $complete) {
-    # Downloads never populate or reuse the checkout's dist directory.
+    # An incomplete pair must use entirely fresh staging, never a mix with dist.
     $downloadDir = Join-Path ([IO.Path]::GetTempPath()) ("gentle-cc-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $downloadDir | Out-Null
     $ownedTemp = $downloadDir
     $distDir = $downloadDir
+    $ghReady = $false
     if (Get-Command gh -ErrorAction SilentlyContinue) {
+      gh auth status *> $null
+      $ghReady = ($LASTEXITCODE -eq 0)
+    }
+    $downloaded = $false
+    if ($ghReady) {
       Write-Host "downloading release $Version from $OwnerRepo via gh ..."
       gh release download $Version -R $OwnerRepo -D $distDir
-      if ($LASTEXITCODE -ne 0) { throw "gh release download failed (exit $LASTEXITCODE)" }
-    } else {
+      if ($LASTEXITCODE -eq 0) {
+        $downloaded = $true
+      } else {
+        Write-Warning "gh release download failed (exit $LASTEXITCODE); trying the public release URL"
+      }
+    }
+    if (-not $downloaded) {
       $base = "https://github.com/$OwnerRepo/releases/download/$Version"
       Write-Host "downloading release $Version from $base ..."
       foreach ($name in @($artifacts.Values) + "checksums.txt") {
