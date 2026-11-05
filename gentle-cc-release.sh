@@ -39,6 +39,16 @@ mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 : > "$OUT/checksums.txt"
 
+# Portable sha256 (Linux: sha256sum, macOS/BSD: shasum).
+sha256_of() {
+  sha256sum "$1" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$1" | awk '{print $1}'
+}
+# Emit "hash  name" lines compatible with the installer's parser.
+manifest_line() {
+  local dir="$1" name="$2"
+  printf '%s  %s\n' "$(sha256_of "$dir/$name")" "$name"
+}
+
 targets="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64"
 
 for t in $targets; do
@@ -51,13 +61,13 @@ for t in $targets; do
     go build -trimpath -buildvcs=false \
       -ldflags "-s -w -X main.version=${VERSION}" \
       -o "$OUT/$bin" ./cmd/gentle-ai )
-  ( cd "$OUT" && sha256sum "$bin" >> checksums.txt )
+  manifest_line "$OUT" "$bin" >> "$OUT/checksums.txt"
 done
 
 echo "copying wrapper ..."
 cp "$WRAPPER_SRC" "$OUT/gentle-cc"
 chmod +x "$OUT/gentle-cc"
-( cd "$OUT" && sha256sum "gentle-cc" >> checksums.txt )
+manifest_line "$OUT" "gentle-cc" >> "$OUT/checksums.txt"
 
 echo
 echo "artifacts in $OUT:"

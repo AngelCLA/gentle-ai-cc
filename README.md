@@ -44,7 +44,34 @@ the shared `state.json` compatible with the official binary.
 | `gentle-cc` | Wrapper: runs the companion only for `command-code`, cleans shared state. |
 | `gentle-cc-release.sh` | Builds reproducible per-platform binaries + wrapper + `checksums.txt`. |
 | `gentle-cc-install.sh` | Installs verified binaries from a release **or** builds from a pinned commit. |
-| `install.sh` | One-line convenience wrapper around the installer. |
+| `install.sh` | POSIX convenience installer (clone-based; private-repo safe). |
+| `install.ps1` | Windows installer (PowerShell; verified download). |
+
+## Platform support
+
+| OS / arch | Companion binary | Installer | Wrapper (`gentle-cc`) |
+| --- | --- | --- | --- |
+| Linux amd64 / arm64 | Yes | `install.sh` | Yes (bash) |
+| macOS amd64 / arm64 | Yes | `install.sh` | Yes (bash) |
+| Windows amd64 / arm64 | Yes | `install.ps1` | **No** — bash script |
+
+On **Linux/macOS** the full flow (`install.sh` → `gentle-cc install/sync`) works
+as documented.
+
+On **Windows**, use `install.ps1` to install the companion binary, then call the
+binary directly:
+
+```powershell
+gentle-ai-cc.exe install --agent command-code --preset full-gentleman
+gentle-ai-cc.exe sync --agent command-code
+```
+
+The `gentle-cc` wrapper is a **bash** script (it does the `state.json` cleanup
+after each operation). On Windows you can run it under **Git Bash** or **WSL**;
+without either, call the companion directly and note that the wrapper's
+post-run state cleanup will not happen (see "The shared-state detail").
+`install.ps1` was not executed in this environment (no PowerShell available);
+review it before relying on it.
 
 ## Do I need the gentle-ai repo or the official binary?
 
@@ -88,8 +115,13 @@ gentle-cc-install.sh --from-release https://github.com/AngelCLA/gentle-ai-cc/rel
 
 ### B. Build from source at a pinned commit (needs Go 1.25+)
 
+This builds the **gentle-ai** module, so `--from-source` must point at a checkout
+of gentle-ai that contains the Command Code adapter (a fork/branch with
+`internal/agents/commandcode/`). It does **not** work against this distribution
+repo, which contains scripts only.
+
 ```bash
-gentle-cc-install.sh --from-source https://github.com/AngelCLA/gentle-ai-cc.git --ref <pinned-commit>
+gentle-cc-install.sh --from-source https://github.com/<you>/gentle-ai.git --ref <pinned-commit>
 ```
 
 Both install `~/.local/bin/gentle-ai-cc` and, unless `--no-wrapper`,
