@@ -56,7 +56,8 @@ the shared `state.json` compatible with the official binary.
 | Windows amd64 / arm64 | Yes | `install.ps1` | **No** — bash script |
 
 On **Linux/macOS** the full flow (`install.sh` → `gentle-cc install/sync`) works
-as documented.
+as documented. Mutating wrapper commands also require **Python 3** on `PATH`
+(for shared-state validation and atomic cleanup); release users do not need Go.
 
 On **Windows**, use `install.ps1` to install the companion binary, then call the
 binary directly:
@@ -91,11 +92,11 @@ Who needs what:
 | **User building from source** (`--from-source`) | Yes | Yes | Not required |
 | **Maintainer packaging a release** | Yes | Yes | — |
 
-If you already have the official `gentle-ai` installed, there is no conflict: the
-official binary manages the other agents, the companion manages `command-code`,
-and the wrapper keeps the shared `state.json` compatible (see below). The only
-cost of the design is size: the companion is a second full binary (~31 MB), not a
-small add-on.
+If you already have the official `gentle-ai` installed, the official binary
+manages the other agents, the companion manages `command-code`, and the wrapper
+keeps the shared `state.json` compatible (see below). Run them sequentially:
+direct binary invocations do not honor the wrapper lock. The companion is a
+second full binary (~31 MB), not a small add-on.
 
 Data the companion writes (same shape as any managed agent):
 
@@ -179,11 +180,37 @@ Error: execute sync pipeline: create adapter for "command-code":
 agent "command-code" is not supported in MVP
 ```
 
-The companion's `install` records `command-code` there. The wrapper
-**automatically removes** `command-code` and the stale `commandcode` from
-`installed_agents` after every `install`/`sync`, so the official binary keeps
-working. `--dry-run` hides this (it does not build adapters); verify with a real
-`sync`.
+The companion's `install` records `command-code` there. After mutating
+`install`/`sync` operations, the wrapper **removes only** `command-code` and the
+stale `commandcode` from `installed_agents`, preserving other agents and JSON
+fields. Cleanup writes a temporary file in the same directory, preserves the
+file mode, flushes and fsyncs the file, then atomically replaces `state.json`.
+Already-open readers retain the old file; this does not make the companion's
+own writes atomic or promise durability across every filesystem/power failure.
+
+Before invoking a mutating binary, the wrapper checks for Python 3 and validates
+existing state (a JSON object with an optional `installed_agents` list of
+strings). Missing state is allowed; malformed JSON, invalid schema and I/O
+errors are reported rather than silently ignored. A companion failure retains
+its exit status if cleanup succeeds; a cleanup failure returns an error instead.
+
+A directory lock at `~/.gentle-ai/gentle-cc.lock` serializes wrapper mutations,
+including the **entire** `sync-all` operation. A held lock fails immediately with
+`gentle-cc: shared state busy (gentle-cc.lock); see README recovery instructions`.
+Exit/signal traps release an owned lock. Forced termination (for example SIGKILL)
+can leave a stale lock; there is no automatic stale-lock recovery.
+
+**Do not run direct official or companion writes simultaneously with the
+wrapper or each other.** Neither external binary honors this wrapper-only lock;
+atomic cleanup cannot prevent their lost updates. `sync-all` runs official sync
+first and companion sync second, but is not a transaction with rollback.
+
+`--help`, `-h`, `--dry-run` and `--dry-run=true` are forwarded without wrapper
+cleanup or locking. `--dry-run=false` remains mutating. These informational
+invocations leave shared state untouched by the wrapper; the binary determines
+its own behavior. `sync-all` still needs Python to read the other-agent list.
+Dry-run can hide unsupported-agent errors because it does not build adapters;
+verify compatibility with a real `sync`.
 
 ## Environment variables
 
@@ -217,6 +244,13 @@ working. `--dry-run` hides this (it does not build adapters); verify with a real
   `gentle-cc` for Command Code.
 - Official `sync` fails `not supported in MVP`: run any `gentle-cc sync`/`install`
   (it cleans state) or edit `~/.gentle-ai/state.json` manually.
+- `python3 required for shared-state cleanup`: install Python 3 and ensure it is
+  on `PATH` before running a mutating wrapper command.
+- `cannot clean shared state`: inspect and repair `~/.gentle-ai/state.json`;
+  invalid existing state is rejected before either mutating binary runs.
+- `shared state busy (gentle-cc.lock)`: wait for the active wrapper. If a crash
+  left a stale lock, **first confirm no wrapper is active**, then manually run
+  `rmdir ~/.gentle-ai/gentle-cc.lock`. Never remove an active wrapper's lock.
 - `checksum mismatch`: the download is corrupted or the manifest is stale — do
   not install; re-fetch from the pinned release.
 - Companion build fails: confirm `--ref` exists and Go is on `PATH`.

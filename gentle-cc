@@ -10,6 +10,7 @@
 # when an agent ID it does not know is recorded there. The companion install
 # records `command-code`, so every companion operation is followed by a
 # cleanup that removes the Command Code IDs from installed_agents again.
+# Help/dry-run skip cleanup. The wrapper lock cannot protect direct binary runs.
 set -euo pipefail
 
 REPO="${GENTLE_CC_REPO:-$HOME/dev/gentle-ai}"
@@ -31,67 +32,103 @@ ensure_bin() {
   if [ ! -x "$BIN" ]; then build; fi
 }
 
-# Remove Command Code IDs the official binary rejects, so its sync keeps
-# working. Keeps every other field and every legitimate agent untouched.
-clean_state() {
-  python3 - "$CC_AGENT" <<'PY'
-import json, os, sys
-cc = sys.argv[1]
+require_python() {
+  command -v python3 >/dev/null 2>&1 || die "python3 required for shared-state cleanup"
+}
+
+# One reader/validator owns the shared schema for preflight, routing and cleanup.
+state_action() {
+  python3 - "$CC_AGENT" "$1" <<'PY'
+import json, os, stat, sys, tempfile
+cc, action = sys.argv[1:]
 path = os.path.expanduser("~/.gentle-ai/state.json")
 try:
-    st = json.load(open(path))
-except Exception:
-    raise SystemExit
-agents = st.get("installed_agents")
-if not isinstance(agents, list):
-    raise SystemExit
-cleaned = [a for a in agents if a not in (cc, "commandcode")]
-if cleaned != agents:
-    st["installed_agents"] = cleaned
-    with open(path, "w") as f:
-        json.dump(st, f, indent=2)
-        f.write("\n")
+    try:
+        with open(path) as source:
+            st = json.load(source)
+            mode = stat.S_IMODE(os.fstat(source.fileno()).st_mode)
+    except FileNotFoundError:
+        st = {}
+    if not isinstance(st, dict):
+        raise ValueError("state must be a JSON object")
+    agents = st.get("installed_agents", [])
+    if not isinstance(agents, list) or any(not isinstance(a, str) for a in agents):
+        raise ValueError("installed_agents must be a list of strings")
+    cleaned = [a for a in agents if a not in (cc, "commandcode")]
+    if action == "agents":
+        print(",".join(dict.fromkeys(cleaned)))
+    elif action == "clean" and cleaned != agents:
+        st["installed_agents"] = cleaned
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", dir=os.path.dirname(path),
+                                             prefix=".gentle-cc-", delete=False) as out:
+                temporary = out.name
+                os.fchmod(out.fileno(), mode)
+                json.dump(st, out, indent=2)
+                out.write("\n")
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None and os.path.exists(temporary):
+                os.unlink(temporary)
+except (OSError, ValueError) as error:
+    print(f"gentle-cc: cannot clean shared state: {error}", file=sys.stderr)
+    sys.exit(1)
 PY
 }
 
-# Agents recorded in state.json that the official binary knows about.
-official_agents_from_state() {
-  python3 - "$CC_AGENT" <<'PY'
-import json, os, sys
-cc = sys.argv[1]
-path = os.path.expanduser("~/.gentle-ai/state.json")
-try:
-    st = json.load(open(path))
-except Exception:
-    print(""); raise SystemExit
-seen, out = set(), []
-for a in st.get("installed_agents", []):
-    if a in (cc, "commandcode") or a in seen:
-        continue
-    seen.add(a); out.append(a)
-print(",".join(out))
-PY
+clean_state() { state_action clean; }
+official_agents_from_state() { state_action agents; }
+
+informational() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in --help|-h|--dry-run|--dry-run=true) return 0 ;; esac
+  done
+  return 1
+}
+
+begin_mutation() {
+  require_python
+  local lock="$HOME/.gentle-ai/gentle-cc.lock"
+  mkdir -p "$HOME/.gentle-ai" || die "cannot create shared-state directory"
+  if ! mkdir "$lock" 2>/dev/null; then
+    die "shared state busy (gentle-cc.lock); see README recovery instructions"
+  fi
+  # Installed only after successful acquisition; never release another owner.
+  trap 'rmdir "$HOME/.gentle-ai/gentle-cc.lock"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  state_action validate
 }
 
 run_companion() {
   ensure_bin
   local rc=0
   "$BIN" "$@" || rc=$?
-  clean_state
+  if ! informational "$@"; then clean_state; fi
   return "$rc"
 }
 
 case "${1:-help}" in
   build)   build ;;
   sync)
-    shift; run_companion sync --agent "$CC_AGENT" "$@" ;;
+    shift
+    if ! informational "$@"; then begin_mutation; fi
+    run_companion sync --agent "$CC_AGENT" "$@" ;;
   install)
-    shift; run_companion install --agent "$CC_AGENT" "$@" ;;
+    shift
+    if ! informational "$@"; then begin_mutation; fi
+    run_companion install --agent "$CC_AGENT" "$@" ;;
   doctor)
     shift; ensure_bin; "$BIN" doctor "$@" ;;
   sync-all)
-    shift; ensure_bin
+    shift
+    if informational "$@"; then require_python; else begin_mutation; fi
     others="$(official_agents_from_state)"
+    ensure_bin
     if [ -n "$others" ]; then
       printf 'Official sync: %s\n' "$others"
       "$OFFICIAL" sync --agent "$others" "$@" || die "official sync failed"
@@ -109,6 +146,11 @@ gentle-cc — Command Code companion for gentle-ai
   gentle-cc install [args]   Install only Command Code (companion)
   gentle-cc doctor  [args]   Run doctor with the companion binary
   gentle-cc sync-all[args]   Official sync for other agents + Command Code
+
+Mutating install/sync/sync-all require Python 3 and an exclusive wrapper lock.
+--help/-h/--dry-run/--dry-run=true are forwarded without cleanup or locking.
+--dry-run=false still mutates. Do not run direct binaries concurrently.
+See README for shared-state limitations and stale-lock recovery.
 
 Env:
   GENTLE_CC_REPO   branch checkout        (default ~/dev/gentle-ai)
