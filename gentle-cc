@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# gentle-cc — companion wrapper for Command Code.
+#
+# The official `gentle-ai` release manages every supported agent EXCEPT
+# Command Code. This script builds a companion binary from your local branch
+# (which carries the Command Code adapter) and runs it ONLY against
+# `--agent command-code`, so the two binaries never fight over other agents.
+#
+# The official binary reads ~/.gentle-ai/state.json and fails its real sync
+# when an agent ID it does not know is recorded there. The companion install
+# records `command-code`, so every companion operation is followed by a
+# cleanup that removes the Command Code IDs from installed_agents again.
+set -euo pipefail
+
+REPO="${GENTLE_CC_REPO:-$HOME/dev/gentle-ai}"
+BIN="${GENTLE_CC_BIN:-$HOME/.local/bin/gentle-ai-cc}"
+OFFICIAL="${GENTLE_AI_BIN:-gentle-ai}"
+CC_AGENT="command-code"
+
+die() { printf 'gentle-cc: %s\n' "$*" >&2; exit 1; }
+
+build() {
+  [ -d "$REPO" ] || die "repo not found: $REPO (set GENTLE_CC_REPO)"
+  command -v go >/dev/null 2>&1 || die "go not on PATH; required to build the companion"
+  printf 'Building companion from %s ...\n' "$REPO"
+  ( cd "$REPO" && go build -o "$BIN" ./cmd/gentle-ai ) || die "build failed"
+  printf 'Built %s\n' "$BIN"
+}
+
+ensure_bin() {
+  if [ ! -x "$BIN" ]; then build; fi
+}
+
+# Remove Command Code IDs the official binary rejects, so its sync keeps
+# working. Keeps every other field and every legitimate agent untouched.
+clean_state() {
+  python3 - "$CC_AGENT" <<'PY'
+import json, os, sys
+cc = sys.argv[1]
+path = os.path.expanduser("~/.gentle-ai/state.json")
+try:
+    st = json.load(open(path))
+except Exception:
+    raise SystemExit
+agents = st.get("installed_agents")
+if not isinstance(agents, list):
+    raise SystemExit
+cleaned = [a for a in agents if a not in (cc, "commandcode")]
+if cleaned != agents:
+    st["installed_agents"] = cleaned
+    with open(path, "w") as f:
+        json.dump(st, f, indent=2)
+        f.write("\n")
+PY
+}
+
+# Agents recorded in state.json that the official binary knows about.
+official_agents_from_state() {
+  python3 - "$CC_AGENT" <<'PY'
+import json, os, sys
+cc = sys.argv[1]
+path = os.path.expanduser("~/.gentle-ai/state.json")
+try:
+    st = json.load(open(path))
+except Exception:
+    print(""); raise SystemExit
+seen, out = set(), []
+for a in st.get("installed_agents", []):
+    if a in (cc, "commandcode") or a in seen:
+        continue
+    seen.add(a); out.append(a)
+print(",".join(out))
+PY
+}
+
+run_companion() {
+  ensure_bin
+  local rc=0
+  "$BIN" "$@" || rc=$?
+  clean_state
+  return "$rc"
+}
+
+case "${1:-help}" in
+  build)   build ;;
+  sync)
+    shift; run_companion sync --agent "$CC_AGENT" "$@" ;;
+  install)
+    shift; run_companion install --agent "$CC_AGENT" "$@" ;;
+  doctor)
+    shift; ensure_bin; "$BIN" doctor "$@" ;;
+  sync-all)
+    shift; ensure_bin
+    others="$(official_agents_from_state)"
+    if [ -n "$others" ]; then
+      printf 'Official sync: %s\n' "$others"
+      "$OFFICIAL" sync --agent "$others" "$@" || die "official sync failed"
+    else
+      printf 'No other agents recorded; skipping official sync.\n'
+    fi
+    printf 'Companion sync: %s\n' "$CC_AGENT"
+    run_companion sync --agent "$CC_AGENT" "$@" ;;
+  help|--help|-h|*)
+    cat <<'EOF'
+gentle-cc — Command Code companion for gentle-ai
+
+  gentle-cc build            Build the companion binary from your branch
+  gentle-cc sync    [args]   Sync only Command Code (companion)
+  gentle-cc install [args]   Install only Command Code (companion)
+  gentle-cc doctor  [args]   Run doctor with the companion binary
+  gentle-cc sync-all[args]   Official sync for other agents + Command Code
+
+Env:
+  GENTLE_CC_REPO   branch checkout        (default ~/dev/gentle-ai)
+  GENTLE_CC_BIN    companion binary path  (default ~/.local/bin/gentle-ai-cc)
+  GENTLE_AI_BIN    official binary        (default gentle-ai)
+EOF
+    ;;
+esac

@@ -1,0 +1,3 @@
+# Build output (release artifacts are uploaded, not committed)
+dist/
+*.exe
