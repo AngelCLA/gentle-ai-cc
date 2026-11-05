@@ -253,6 +253,170 @@ exit 92
                     self.assertFalse((self.dest / "gentle-cc").exists())
                 self.assertEqual(list(self.stage.iterdir()), [])
 
+    def publication_faults(self):
+        """Intercept only publication tools, inside this fixture's private PATH."""
+        fakebin = self.root / "publication tools"
+        fakebin.mkdir()
+        for tool in ("cp", "chmod", "mv", "mktemp", "rm"):
+            real = shutil.which(tool)
+            script = fakebin / tool
+            script.write_text(f'''#!/bin/bash
+if [ "{tool}" = rm ] && [ "$*" = "-f $GENTLE_CC_DEST/gentle-ai-cc" ] &&
+   [ "${{FAIL_RESTORE:-0}}" = 1 ]; then
+  exit 74
+fi
+case "$*" in
+  *"$GENTLE_CC_DEST/.gentle-cc-install."*)
+    kind=""
+    case "{tool}:$*" in
+      mktemp:*) kind=stage-directory ;;
+      cp:*"/new-"*) kind=stage ;;
+      cp:*"/old-"*) kind=snapshot ;;
+      chmod:*) kind=permissions ;;
+      mv:*"/old-"*) kind=restore ;;
+      mv:*) kind=rename ;;
+    esac
+    if [ "$kind" = "$FAIL_KIND" ]; then
+      count=0
+      [ ! -f "$FAIL_COUNT" ] || read -r count < "$FAIL_COUNT"
+      count=$((count + 1))
+      printf '%s\\n' "$count" > "$FAIL_COUNT"
+      [ "$count" != "$FAIL_AT" ] || exit 73
+    fi
+    if [ "$kind" = restore ] && [ "${{FAIL_RESTORE:-0}}" = 1 ]; then
+      exit 74
+    fi
+    ;;
+esac
+exec "{real}" "$@"
+''')
+            script.chmod(0o755)
+        self.env["PATH"] = str(fakebin) + os.pathsep + self.env["PATH"]
+        self.env["FAIL_COUNT"] = str(self.root / "failure count")
+
+    def release_prefix(self, *, no_wrapper=False):
+        output = (f"platform: {platform.system().lower()}/{self.asset.split('_')[-1]}  "
+                  f"asset: {self.asset}\n"
+                  f"downloading {self.asset} ...\n"
+                  f"checksum OK ({self.asset}): {hashlib.sha256(self.binary).hexdigest()}\n")
+        if not no_wrapper:
+            output += ("downloading gentle-cc wrapper ...\n"
+                       f"checksum OK (gentle-cc): {hashlib.sha256(self.wrapper).hexdigest()}\n")
+        return output
+
+    def test_publication_failures_restore_only_requested_artifacts(self):
+        for mode in ("release", "source"):
+            for existing in (True, False):
+                for no_wrapper in (False, True):
+                    cases = [("stage-directory", 1, "cannot create publication staging"),
+                             ("stage", 1, "cannot stage gentle-ai-cc"),
+                             ("permissions", 1, "cannot set permissions for gentle-ai-cc"),
+                             ("rename", 1, "cannot replace gentle-ai-cc")]
+                    if existing:
+                        cases.append(("snapshot", 1, "cannot snapshot gentle-ai-cc"))
+                    if not no_wrapper:
+                        cases += [(kind, 2, message) for kind, message in (
+                            ("stage", "cannot stage gentle-cc"),
+                            ("permissions", "cannot set permissions for gentle-cc"),
+                            ("rename", "cannot replace gentle-cc"))]
+                        if existing:
+                            cases.append(("snapshot", 2, "cannot snapshot gentle-cc"))
+                    for kind, occurrence, message in cases:
+                        with self.subTest(mode=mode, existing=existing,
+                                          no_wrapper=no_wrapper, kind=kind, at=occurrence):
+                            # Each injected failure has its own private filesystem and PATH.
+                            fixture = InstallerTests()
+                            fixture.setUp()
+                            try:
+                                if not existing:
+                                    (fixture.dest / "gentle-ai-cc").unlink()
+                                    if not no_wrapper:
+                                        (fixture.dest / "gentle-cc").unlink()
+                                (fixture.dest / "unrelated").write_bytes(b"keep me")
+                                (fixture.dest / "unrelated").chmod(0o604)
+                                before = fixture.snapshot()
+                                if mode == "source":
+                                    installer, checkout = fixture.source_fixture()
+                                fixture.publication_faults()
+                                fixture.env.update(FAIL_KIND=kind, FAIL_AT=str(occurrence))
+                                args = ["--no-wrapper"] if no_wrapper else []
+                                if mode == "release":
+                                    result = fixture.run_release(*args)
+                                    prefix = fixture.release_prefix(no_wrapper=no_wrapper)
+                                else:
+                                    result = fixture.run_source(installer, checkout, *args)
+                                    prefix = fixture.source_stdout(checkout).split("built SHA256:")[0]
+                                self.assertEqual(result.returncode, 1, result)
+                                self.assertEqual(result.stdout, prefix)
+                                self.assertEqual(result.stderr, f"install: {message}\n")
+                                self.assertEqual(fixture.snapshot(), before)
+                                self.assertEqual(list(fixture.stage.iterdir()), [])
+                            finally:
+                                fixture.doCleanups()
+
+    def test_restoration_failure_reports_and_retains_backup(self):
+        self.publication_faults()
+        self.env.update(FAIL_KIND="rename", FAIL_AT="2", FAIL_RESTORE="1")
+        result = self.run_release()
+        self.assertEqual(result.returncode, 1, result)
+        self.assertEqual(result.stdout, self.release_prefix())
+        recovery, = self.dest.glob(".gentle-cc-install.*")
+        self.assertEqual(result.stderr,
+                         f"install: restoration failed for {self.dest}/gentle-ai-cc\n"
+                         f"install: backups retained at {recovery}; manual recovery required\n"
+                         "install: cannot replace gentle-cc\n")
+        self.assertEqual((recovery / "old-gentle-ai-cc").read_bytes(),
+                         self.before["gentle-ai-cc"][0])
+        self.assertEqual(stat.S_IMODE((recovery / "old-gentle-ai-cc").stat().st_mode), 0o640)
+        self.assertEqual(self.snapshot_artifact("gentle-cc"), self.before["gentle-cc"])
+        self.assertEqual((self.dest / "gentle-ai-cc").read_bytes(), self.binary)
+        self.assertEqual(list(self.stage.iterdir()), [])
+
+    def test_new_artifact_removal_failure_is_explicit_in_source_mode(self):
+        (self.dest / "gentle-ai-cc").unlink()
+        (self.dest / "unrelated").write_bytes(b"unchanged")
+        (self.dest / "unrelated").chmod(0o600)
+        unrelated = self.snapshot_artifact("unrelated")
+        installer, checkout = self.source_fixture()
+        self.publication_faults()
+        self.env.update(FAIL_KIND="rename", FAIL_AT="2", FAIL_RESTORE="1")
+        result = self.run_source(installer, checkout)
+        self.assertEqual(result.returncode, 1, result)
+        self.assertEqual(result.stdout, self.source_stdout(checkout).split("built SHA256:")[0])
+        recovery, = self.dest.glob(".gentle-cc-install.*")
+        self.assertEqual(result.stderr,
+                         f"install: restoration failed for {self.dest}/gentle-ai-cc\n"
+                         f"install: backups retained at {recovery}; manual recovery required\n"
+                         "install: cannot replace gentle-cc\n")
+        self.assertFalse((recovery / "old-gentle-ai-cc").exists())
+        self.assertEqual((self.dest / "gentle-ai-cc").read_bytes(), self.binary)
+        self.assertEqual(self.snapshot_artifact("gentle-cc"), self.before["gentle-cc"])
+        self.assertEqual(self.snapshot_artifact("unrelated"), unrelated)
+        self.assertEqual(list(self.stage.iterdir()), [])
+
+    def snapshot_artifact(self, name):
+        path = self.dest / name
+        return path.read_bytes(), stat.S_IMODE(path.stat().st_mode)
+
+    def test_unsafe_destinations_rejected_before_publication(self):
+        for kind in ("symlink", "directory"):
+            with self.subTest(kind=kind):
+                path = self.dest / "gentle-cc"
+                path.unlink() if path.is_symlink() or path.is_file() else path.rmdir()
+                target = self.root / "symlink target"
+                target.write_bytes(b"do not follow")
+                if kind == "symlink":
+                    path.symlink_to(target)
+                else:
+                    path.mkdir()
+                result = self.run_release()
+                self.assertEqual(result.returncode, 1, result)
+                self.assertEqual(result.stdout, self.release_prefix())
+                self.assertEqual(result.stderr, f"install: unsafe destination: {path}\n")
+                self.assertEqual(self.snapshot_artifact("gentle-ai-cc"), self.before["gentle-ai-cc"])
+                self.assertEqual(target.read_bytes(), b"do not follow")
+                self.assertEqual(list(self.dest.glob(".gentle-cc-install.*")), [])
+
     def test_authenticated_child_status_output_and_cleanup(self):
         checkout = self.root / "checkout"
         checkout.mkdir()

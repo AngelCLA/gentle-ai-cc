@@ -19,6 +19,8 @@
 # Both modes install:
 #   ~/.local/bin/gentle-ai-cc     (companion binary)
 #   ~/.local/bin/gentle-cc        (wrapper, unless --no-wrapper)
+# Controlled publication errors restore this invocation's changed files only.
+# Not an atomic pair or crash/signal-safe; see README for recovery limitations.
 set -euo pipefail
 
 DEST_DIR="${GENTLE_CC_DEST:-$HOME/.local/bin}"
@@ -72,7 +74,6 @@ if [ "$MODE" = "source" ] && [ "$NO_WRAPPER" = "0" ]; then
   cp "$source_wrapper" "$tmp/gentle-cc" || die "cannot stage source wrapper: $source_wrapper"
 fi
 
-mkdir -p "$DEST_DIR"
 echo "platform: ${os}/${arch}  asset: ${asset}"
 
 sha256_of() {
@@ -89,6 +90,73 @@ verify_against() {
   echo "checksum OK ($name): $actual"
 }
 
+# Only regular requested paths are supported. Do not follow destination links
+# or let mv interpret a directory as a container. Requires exclusive destination
+# access: portable shell preflight cannot defend against concurrent path swaps.
+safe_destination() {
+  [ ! -L "$1" ] && { [ ! -e "$1" ] || [ -f "$1" ]; }
+}
+
+publication_abort() {
+  local message="$1" name failed=0 restore_failed
+  # changed[] is populated only after successful renames, never for unrequested
+  # paths. Backups are outside the ordinary download-staging EXIT cleanup.
+  # The + expansion also supports empty arrays under older Bash nounset.
+  for name in "${changed[@]+"${changed[@]}"}"; do
+    restore_failed=0
+    if ! safe_destination "$DEST_DIR/$name"; then
+      restore_failed=1
+    elif [ -f "$publication/old-$name" ]; then
+      mv -f "$publication/old-$name" "$DEST_DIR/$name" || restore_failed=1
+    else
+      rm -f "$DEST_DIR/$name" || restore_failed=1
+    fi
+    if [ "$restore_failed" = 1 ]; then
+      failed=1
+      printf 'install: restoration failed for %s\n' "$DEST_DIR/$name" >&2
+    fi
+  done
+  if [ "$failed" = 1 ]; then
+    printf 'install: backups retained at %s; manual recovery required\n' "$publication" >&2
+  else
+    rm -rf "$publication" || \
+      printf 'install: cannot remove publication staging: %s\n' "$publication" >&2
+  fi
+  die "$message"
+}
+
+publish_artifacts() {
+  local binary="$1" name input publication
+  local names=("$BIN_NAME") changed=()
+  [ "$NO_WRAPPER" = 1 ] || names+=("gentle-cc")
+  for name in "${names[@]}"; do
+    safe_destination "$DEST_DIR/$name" || die "unsafe destination: $DEST_DIR/$name"
+  done
+  [ ! -L "$DEST_DIR" ] && { [ ! -e "$DEST_DIR" ] || [ -d "$DEST_DIR" ]; } || \
+    die "unsafe destination directory: $DEST_DIR"
+  mkdir -p "$DEST_DIR" || die "cannot create destination: $DEST_DIR"
+  publication="$(mktemp -d "$DEST_DIR/.gentle-cc-install.XXXXXXXX")" || \
+    die "cannot create publication staging"
+
+  # Stage and set permissions before touching installed files. Snapshot every
+  # requested old file (including its mode) before the first replacement.
+  for name in "${names[@]}"; do
+    input="$binary"
+    [ "$name" != gentle-cc ] || input="$tmp/gentle-cc"
+    cp "$input" "$publication/new-$name" || publication_abort "cannot stage $name"
+    chmod +x "$publication/new-$name" || publication_abort "cannot set permissions for $name"
+    if [ -e "$DEST_DIR/$name" ]; then
+      cp -p "$DEST_DIR/$name" "$publication/old-$name" || publication_abort "cannot snapshot $name"
+    fi
+  done
+  for name in "${names[@]}"; do
+    safe_destination "$DEST_DIR/$name" || publication_abort "unsafe destination: $DEST_DIR/$name"
+    mv -f "$publication/new-$name" "$DEST_DIR/$name" || publication_abort "cannot replace $name"
+    changed+=("$name")
+  done
+  rm -rf "$publication" || die "cannot remove publication staging: $publication"
+}
+
 install_release() {
   command -v curl >/dev/null 2>&1 || die "curl required for --from-release"
   base="${SRC%/}"
@@ -103,14 +171,8 @@ install_release() {
     verify_against "$tmp/gentle-cc" "gentle-cc" "$tmp/checksums.txt"
   fi
 
-  # Verify every requested artifact before replacing either destination.
-  # Copy/chmod failures are still possible; this is not a rollback transaction.
-  cp "$tmp/$asset" "$DEST_DIR/$BIN_NAME"
-  chmod +x "$DEST_DIR/$BIN_NAME"
-  if [ "$NO_WRAPPER" = "0" ]; then
-    cp "$tmp/gentle-cc" "$WRAPPER"
-    chmod +x "$WRAPPER"
-  fi
+  # Verify every requested artifact before publication starts.
+  publish_artifacts "$tmp/$asset"
 }
 
 install_source() {
@@ -124,14 +186,8 @@ install_source() {
       go build -trimpath -buildvcs=false \
         -ldflags "-s -w -X main.version=${VERSION}" \
         -o "$tmp/$BIN_NAME$ext" ./cmd/gentle-ai ) || die "build failed"
-  cp "$tmp/$BIN_NAME$ext" "$DEST_DIR/$BIN_NAME"
-  chmod +x "$DEST_DIR/$BIN_NAME"
+  publish_artifacts "$tmp/$BIN_NAME$ext"
   echo "built SHA256: $(sha256_of "$DEST_DIR/$BIN_NAME")"
-
-  if [ "$NO_WRAPPER" = "0" ]; then
-    cp "$tmp/gentle-cc" "$WRAPPER"
-    chmod +x "$WRAPPER"
-  fi
 }
 
 case "$MODE" in

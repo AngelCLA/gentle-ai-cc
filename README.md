@@ -135,7 +135,7 @@ cloning or building. If it is unavailable, installation fails without replacing
 an existing binary or wrapper; it never silently keeps an old wrapper or reports
 success with a missing one. Use `--no-wrapper` to explicitly install only the
 binary without needing the distribution wrapper (any existing wrapper is left
-unchanged). Later copy/permission failures are not rolled back.
+unchanged). Both Bash modes use the publication recovery described below.
 
 ```bash
 gentle-cc-install.sh --from-source https://github.com/<you>/gentle-ai.git --ref <pinned-commit>
@@ -147,8 +147,27 @@ verified against `checksums.txt` **before either destination is replaced**. A
 missing download or failed verification leaves existing binary/wrapper bytes
 and modes unchanged. `--no-wrapper` does not download or verify the wrapper;
 `--sha-only` still installs, but suppresses the final next-step guidance.
-This is verification-before-write, not transactional rollback: a later copy,
-permission, or disk-write failure can still leave a partial installation.
+The Bash installer stages new requested files and mode-preserving backups in a
+private `.gentle-cc-install.*` directory on the destination filesystem. It sets
+executable permissions before publication and retains backups until both requested
+replacements finish. Controlled staging, snapshot, permission, or rename failures
+exit with status 1: only artifacts successfully replaced by that invocation are
+restored to their previous bytes and modes (newly created artifacts are removed).
+Unrelated files and an unrequested wrapper are not changed. Requested symlinks,
+directories, and other non-regular files are rejected before publication, rather
+than followed; a symlink destination directory is also rejected.
+
+This is **not an atomic two-file installation or crash-safe recovery**. Use an
+exclusively controlled destination: do not run concurrent installers or allow
+other writers to swap its paths or parent directories. Readers can observe the
+interval between renames. Signals, shell termination, SIGKILL, power loss, and
+filesystem failures can interrupt publication or restoration; no signal-triggered
+rollback is guaranteed. If restoration fails, stderr explicitly names the failed
+artifact and retained backup directory for manual recovery; do not discard those
+backups. Interrupted publication may also leave that directory. There is no
+automatic recovery command. Inspect the destination and backups before separately
+authorizing any manual recovery. These guarantees apply to `gentle-cc-install.sh`
+on Linux/macOS, **not** the separate Windows PowerShell installer.
 Authenticated `install.sh` downloads clean their staging on both child success
 and failure, preserving the child's exit status.
 
