@@ -299,6 +299,19 @@ for requested in both binary; do
   passed=$((passed + 1))
 done
 
+# Published checksums.txt uses CRLF line endings; its assets must still verify.
+fixture
+awk '{ printf "%s\r\n", $0 }' "$F/release/checksums.txt" > "$F/checksums-crlf"
+mv "$F/checksums-crlf" "$F/release/checksums.txt"
+release
+eq "$status" 0 'CRLF release manifest exit'
+{ release_prefix; success_tail; } > "$F/expected-out"
+: > "$F/expected-err"; output_is
+bytes "$GENTLE_CC_DEST/gentle-ai-cc" "$F/new-binary"
+bytes "$GENTLE_CC_DEST/gentle-cc" "$F/new-wrapper"
+empty_stage
+passed=$((passed + 1))
+
 # Source wrapper must build from this distribution module, never external bytes.
 for external in present absent; do
   fixture
