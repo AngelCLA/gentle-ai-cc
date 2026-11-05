@@ -8,15 +8,21 @@ Command Code adapter. One verified binary; no full repo clone for users.
 > `NOT_PLANNED`), #4105 and #5790 were closed under the policy *"we're not
 > accepting new agents for now."* This is a community workaround.
 
-## Quick install (no Go, no repo clone)
+## Quick install (no Go, no repo clone of gentle-ai)
+
+This repository is **private**, so use an authenticated clone (not the anonymous
+`curl` form):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh | bash
+git clone https://github.com/AngelCLA/gentle-ai-cc.git
+cd gentle-ai-cc && ./install.sh
 ```
 
-That downloads the companion binary for your OS/arch **and** the `gentle-cc`
-wrapper, verifies both against `checksums.txt`, and installs them to
-`~/.local/bin`. Then:
+`install.sh` uses a local `dist/` when present, otherwise downloads the release
+with your authenticated `gh`, otherwise builds from source if you set
+`GENTLE_CC_SOURCE`. It installs the companion binary for your OS/arch **and** the
+`gentle-cc` wrapper, verifying both against `checksums.txt`, to `~/.local/bin`.
+Then:
 
 ```bash
 gentle-cc install --preset full-gentleman   # first time
@@ -77,13 +83,13 @@ Data the companion writes (same shape as any managed agent):
 ### A. Prebuilt release (recommended, no Go)
 
 ```bash
-gentle-cc-install.sh --from-release https://github.com/<owner>/<repo>/releases/download/4.3.1-cc.1
+gentle-cc-install.sh --from-release https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.1
 ```
 
 ### B. Build from source at a pinned commit (needs Go 1.25+)
 
 ```bash
-gentle-cc-install.sh --from-source https://github.com/<owner>/<repo>.git --ref <pinned-commit>
+gentle-cc-install.sh --from-source https://github.com/AngelCLA/gentle-ai-cc.git --ref <pinned-commit>
 ```
 
 Both install `~/.local/bin/gentle-ai-cc` and, unless `--no-wrapper`,

@@ -36,6 +36,7 @@ command -v go >/dev/null 2>&1 || { echo "go required" >&2; exit 1; }
 [ -f "$WRAPPER_SRC" ] || { echo "wrapper not found: $WRAPPER_SRC" >&2; exit 1; }
 
 mkdir -p "$OUT"
+OUT="$(cd "$OUT" && pwd)"
 : > "$OUT/checksums.txt"
 
 targets="linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64"

@@ -1,27 +1,50 @@
 #!/usr/bin/env bash
-# install.sh — one-line installer for the Command Code companion of gentle-ai.
+# install.sh — installer for the Command Code companion of gentle-ai.
 #
-#   curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh | bash
+# Private repository note: anonymous curl / public release downloads do not work
+# against a private repo. This script therefore prefers, in order:
 #
-# Optional environment:
+#   1. a local ./dist directory (artifacts from gentle-cc-release.sh)
+#   2. an authenticated download of the release via `gh`
+#   3. building from source (GENTLE_CC_SOURCE / GENTLE_CC_REF)
+#
+# Environment:
 #   GENTLE_CC_VERSION   release tag/prefix (default 4.3.1-cc.1)
 #   GENTLE_CC_DEST      install dir        (default ~/.local/bin)
-#   GENTLE_AI_SOURCE    git URL to build from instead of a release
-#   GENTLE_AI_REF       commit/tag for GENTLE_AI_SOURCE
+#   GENTLE_CC_SOURCE    git URL to build from instead of a release
+#   GENTLE_CC_REF       commit/tag for GENTLE_CC_SOURCE
+#   GENTLE_CC_OWNER_REPO owner/repo        (default AngelCLA/gentle-ai-cc)
 set -euo pipefail
 
 VERSION="${GENTLE_CC_VERSION:-4.3.1-cc.1}"
-OWNER_REPO="${GENTLE_CC_OWNER_REPO:-<owner>/<repo>}"
-BASE="https://github.com/${OWNER_REPO}/releases/download/${VERSION}"
+OWNER_REPO="${GENTLE_CC_OWNER_REPO:-AngelCLA/gentle-ai-cc}"
+here="$(cd "$(dirname "$0")" && pwd)"
 
-here="$(dirname "$0")"
-if [ -f "$here/gentle-cc-install.sh" ]; then
-  # running from a checkout: use the bundled installer directly
-  exec "$here/gentle-cc-install.sh" --from-release "$BASE" "$@"
+# 1. Build from source when explicitly requested.
+if [ -n "${GENTLE_CC_SOURCE:-}" ]; then
+  exec "$here/gentle-cc-install.sh" --from-source "$GENTLE_CC_SOURCE" \
+    ${GENTLE_CC_REF:+--ref "$GENTLE_CC_REF"} --version "$VERSION" "$@"
 fi
 
-# running from curl: fetch the installer, then run it
-tmp="$(mktemp)"
-trap 'rm -f "$tmp"' EXIT
-curl -fsSL "https://raw.githubusercontent.com/${OWNER_REPO}/main/gentle-cc-install.sh" -o "$tmp"
-bash "$tmp" --from-release "$BASE" "$@"
+# 2. Local artifacts (e.g. after gentle-cc-release.sh).
+if [ -f "$here/dist/checksums.txt" ]; then
+  echo "using local artifacts in $here/dist"
+  exec "$here/gentle-cc-install.sh" --from-release "file://$here/dist" \
+    --version "$VERSION" "$@"
+fi
+
+# 3. Authenticated download of the release via gh (private repo safe).
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  echo "downloading release $VERSION from $OWNER_REPO via gh ..."
+  gh release download "$VERSION" -R "$OWNER_REPO" -D "$tmp" || {
+    echo "release $VERSION not found; build from source with GENTLE_CC_SOURCE=<git-url>" >&2
+    exit 1
+  }
+  exec "$here/gentle-cc-install.sh" --from-release "file://$tmp" \
+    --version "$VERSION" "$@"
+fi
+
+echo "no local dist/ and no authenticated gh; set GENTLE_CC_SOURCE=<git-url> to build from source" >&2
+exit 1
