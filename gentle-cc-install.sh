@@ -8,14 +8,16 @@
 #       Download the prebuilt binary for this OS/arch and the wrapper from
 #       URL_PREFIX, and verify both against checksums.txt in the same prefix.
 #       No Go required.
-#       Example: --from-release https://github.com/<you>/gentle-ai-cc/releases/download/4.3.1-cc.1
+#       Example: --from-release file:///path/to/prepared/native-release --version V
 #
 #   --from-source GIT_URL [--ref REF]
 #       Clone/checkout GIT_URL at REF (default the pinned commit) and build the
-#       companion with reproducibility flags. The wrapper comes from beside this
-#       installer; staged before destination changes, not from GIT_URL.
+#       companion with reproducibility flags. Build the native wrapper from this
+#       distribution's Go module, never from GIT_URL, before destination changes.
 #       The pinned source currently requires Go 1.25.10 or newer.
-#       A missing wrapper is an error unless --no-wrapper is given.
+#       A missing distribution Go module is an error unless --no-wrapper is given.
+#       Native assets: gentle-cc_<version>_<os>_<arch>[.exe], not legacy gentle-cc.
+#       4.3.1-cc.1 is legacy; explicitly select a prepared native release version.
 #
 # Options:
 #   --ref REF       Source commit/tag (default the pinned commit).
@@ -25,15 +27,15 @@
 # GENTLE_CC_DEST overrides the default destination below; it does not update PATH.
 #
 # Both modes install:
-#   ~/.local/bin/gentle-ai-cc     (companion binary)
-#   ~/.local/bin/gentle-cc        (wrapper, unless --no-wrapper)
+#   ~/.local/bin/gentle-ai-cc     (companion binary; .exe on Windows)
+#   ~/.local/bin/gentle-cc        (native wrapper; .exe on Windows, unless --no-wrapper)
 # Controlled publication errors restore this invocation's changed files only.
 # Not an atomic pair or crash/signal-safe; see README for recovery limitations.
 set -euo pipefail
 
 DEST_DIR="${GENTLE_CC_DEST:-$HOME/.local/bin}"
 BIN_NAME="gentle-ai-cc"
-WRAPPER="$DEST_DIR/gentle-cc"
+WRAPPER_NAME="gentle-cc"
 PINNED_REF="768e6b213c795f574ee837e3a6ce9b4274ee6280"
 VERSION="4.3.1-cc.1"
 
@@ -47,7 +49,7 @@ while [ $# -gt 0 ]; do
     --version) VERSION="$2"; shift 2 ;;
     --sha-only) SHA_ONLY=1; shift ;;
     --no-wrapper) NO_WRAPPER=1; shift ;;
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -67,19 +69,20 @@ case "$arch" in
 esac
 
 ext=""; [ "$os" = "windows" ] && ext=".exe"
+BIN_NAME="gentle-ai-cc$ext"
+WRAPPER_NAME="gentle-cc$ext"
+WRAPPER="$DEST_DIR/$WRAPPER_NAME"
 asset="gentle-ai-cc_${VERSION}_${os}_${arch}${ext}"
+wrapper_asset="gentle-cc_${VERSION}_${os}_${arch}${ext}"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 if [ "$MODE" = "source" ] && [ "$NO_WRAPPER" = "0" ]; then
-  # Resolve relative to this distribution, never the caller's working directory
-  # or the external module. Stage before clone/build or any destination changes.
+  # Resolve this module before clone/build; never use the external companion.
   script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-  source_wrapper="$script_dir/gentle-cc"
-  [ -f "$source_wrapper" ] && [ -r "$source_wrapper" ] || \
-    die "source wrapper unavailable: $source_wrapper"
-  cp "$source_wrapper" "$tmp/gentle-cc" || die "cannot stage source wrapper: $source_wrapper"
+  [ -f "$script_dir/go.mod" ] && [ -r "$script_dir/go.mod" ] || \
+    die "source wrapper unavailable: $script_dir/go.mod"
 fi
 
 echo "platform: ${os}/${arch}  asset: ${asset}"
@@ -137,7 +140,7 @@ publication_abort() {
 publish_artifacts() {
   local binary="$1" name input publication
   local names=("$BIN_NAME") changed=()
-  [ "$NO_WRAPPER" = 1 ] || names+=("gentle-cc")
+  [ "$NO_WRAPPER" = 1 ] || names+=("$WRAPPER_NAME")
   for name in "${names[@]}"; do
     safe_destination "$DEST_DIR/$name" || die "unsafe destination: $DEST_DIR/$name"
   done
@@ -151,7 +154,7 @@ publish_artifacts() {
   # requested old file (including its mode) before the first replacement.
   for name in "${names[@]}"; do
     input="$binary"
-    [ "$name" != gentle-cc ] || input="$tmp/gentle-cc"
+    [ "$name" != "$WRAPPER_NAME" ] || input="$tmp/$WRAPPER_NAME"
     cp "$input" "$publication/new-$name" || publication_abort "cannot stage $name"
     chmod +x "$publication/new-$name" || publication_abort "cannot set permissions for $name"
     if [ -e "$DEST_DIR/$name" ]; then
@@ -176,8 +179,8 @@ install_release() {
 
   if [ "$NO_WRAPPER" = "0" ]; then
     echo "downloading gentle-cc wrapper ..."
-    curl -fsSL "$base/gentle-cc" -o "$tmp/gentle-cc" || die "wrapper download failed"
-    verify_against "$tmp/gentle-cc" "gentle-cc" "$tmp/checksums.txt"
+    curl -fsSL "$base/$wrapper_asset" -o "$tmp/$WRAPPER_NAME" || die "wrapper download failed"
+    verify_against "$tmp/$WRAPPER_NAME" "$wrapper_asset" "$tmp/checksums.txt"
   fi
 
   # Verify every requested artifact before publication starts.
@@ -191,11 +194,17 @@ install_source() {
   git clone --quiet "$SRC" "$tmp/src" || die "clone failed"
   ( cd "$tmp/src" && git checkout --quiet "$REF" ) || die "checkout $REF failed"
   echo "building at $REF (reproducible) ..."
+  if [ "$NO_WRAPPER" = 0 ]; then
+    ( cd "$script_dir" && GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+      go build -trimpath -buildvcs=false \
+        -ldflags "-s -w -X main.version=${VERSION}" \
+        -o "$tmp/$WRAPPER_NAME" ./cmd/gentle-cc ) || die "wrapper build failed"
+  fi
   ( cd "$tmp/src" && GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
       go build -trimpath -buildvcs=false \
         -ldflags "-s -w -X main.version=${VERSION}" \
-        -o "$tmp/$BIN_NAME$ext" ./cmd/gentle-ai ) || die "build failed"
-  publish_artifacts "$tmp/$BIN_NAME$ext"
+        -o "$tmp/$BIN_NAME" ./cmd/gentle-ai ) || die "build failed"
+  publish_artifacts "$tmp/$BIN_NAME"
   echo "built SHA256: $(sha256_of "$DEST_DIR/$BIN_NAME")"
 }
 

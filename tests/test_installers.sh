@@ -36,7 +36,7 @@ executable() {
 }
 manifest() {
   { printf '%s  %s\n' "$(hash "$F/new-binary")" "$asset"
-    if [ "${1:-both}" = both ]; then printf '%s  gentle-cc\n' "$(hash "$F/new-wrapper")"; fi
+    if [ "${1:-both}" = both ]; then printf '%s  %s\n' "$(hash "$F/new-wrapper")" "$wrapper_asset"; fi
   } > "$F/release/checksums.txt"
 }
 fixture() {
@@ -48,11 +48,13 @@ fixture() {
   export FAIL_COUNT="$F/failure-count" FAIL_KIND='' FAIL_AT=0 FAIL_RESTORE=0 CHANGE_DISTRIBUTION=0
   mkdir -p "$HOME" "$TMPDIR" "$GENTLE_CC_DEST" "$F/release" "$F/tools" "$FIXTURE_SOURCE" "$FIXTURE_DISTRIBUTION"
   cp "$ROOT/gentle-cc-install.sh" "$FIXTURE_DISTRIBUTION/"
-  cp "$ROOT/gentle-cc" "$FIXTURE_DISTRIBUTION/gentle-cc"
+  mkdir -p "$FIXTURE_DISTRIBUTION/cmd/gentle-cc"
+  cp "$ROOT/go.mod" "$FIXTURE_DISTRIBUTION/go.mod"
+  cp "$ROOT/cmd/gentle-cc/main.go" "$FIXTURE_DISTRIBUTION/cmd/gentle-cc/main.go"
   printf 'new binary\n' > "$F/new-binary"
   printf 'new wrapper\n' > "$F/new-wrapper"
   cp "$F/new-binary" "$F/release/$asset"
-  cp "$F/new-wrapper" "$F/release/gentle-cc"
+  cp "$F/new-wrapper" "$F/release/$wrapper_asset"
   manifest
   printf 'old gentle-ai-cc' > "$GENTLE_CC_DEST/gentle-ai-cc"
   printf 'old gentle-cc' > "$GENTLE_CC_DEST/gentle-cc"
@@ -86,15 +88,26 @@ TOOL
   cat > "$F/tools/go" <<'TOOL'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'go %s\n' "$1" >> "$TOOL_LOG"
 [ "$1" = build ] || exit 91
+[ "$2" = -trimpath ] && [ "$3" = -buildvcs=false ] && [ "$4" = -ldflags ] || exit 96
+case "$5" in '-s -w -X main.version='*) ;; *) exit 97 ;; esac
+[ "$CGO_ENABLED" = 0 ] || exit 98
+output=''; target="${!#}"
+case "$target" in
+  ./cmd/gentle-cc) [ "$PWD" = "$FIXTURE_DISTRIBUTION" ] || exit 93; content=wrapper ;;
+  ./cmd/gentle-ai) case "$PWD" in */src|"$FIXTURE_SOURCE") ;; *) exit 94 ;; esac; content=binary ;;
+  *) exit 95 ;;
+esac
+printf 'go build %s %s/%s\n' "$target" "$GOOS" "$GOARCH" >> "$TOOL_LOG"
 while [ "$#" -gt 0 ]; do
-  if [ "$1" = -o ]; then printf 'new binary\n' > "$2"; exit 0; fi
+  if [ "$1" = -o ]; then output="$2"; shift; fi
   shift
 done
-exit 92
+printf 'new %s\n' "$content" > "$output"
 TOOL
   chmod +x "$F/tools/"*
+  printf '#!/usr/bin/env bash\ncase "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac\n' > "$F/tools/uname"
+  chmod +x "$F/tools/uname"
   export PATH="$F/tools:$BASE_PATH"
 }
 run() {
@@ -108,7 +121,7 @@ release_prefix() {
   platform_line
   printf 'downloading %s ...\nchecksum OK (%s): %s\n' "$asset" "$asset" "$(hash "$F/new-binary")"
   if [ "${1:-both}" = both ]; then
-    printf 'downloading gentle-cc wrapper ...\nchecksum OK (gentle-cc): %s\n' "$(hash "$F/new-wrapper")"
+    printf 'downloading gentle-cc wrapper ...\nchecksum OK (%s): %s\n' "$wrapper_asset" "$(hash "$F/new-wrapper")"
   fi
 }
 source_prefix() {
@@ -133,10 +146,11 @@ check_source_success() {
   empty_stage
 }
 
-os="$(uname -s | tr 'A-Z' 'a-z')"
-case "$os" in mingw*|msys*|cygwin*) os=windows; ext=.exe ;; linux|darwin) ext='' ;; *) fail "unsupported host: $os" ;; esac
-case "$(uname -m)" in x86_64|amd64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; *) fail 'unsupported architecture' ;; esac
+# Transport/build fixtures are platform-independent bytes. Pin the Unix matrix;
+# a separate Windows selection case below checks native executable names.
+os=linux; arch=amd64; ext=''
 asset="gentle-ai-cc_4.3.1-cc.1_${os}_${arch}${ext}"
+wrapper_asset="gentle-cc_4.3.1-cc.1_${os}_${arch}${ext}"
 printf 'mode probe\n' > "$SUITE/mode-probe"
 chmod 640 "$SUITE/mode-probe"
 MODES=supported
@@ -154,11 +168,11 @@ fi
 # No history dependency and no production edits. Keep the failure log until teardown.
 fixture
 mutant="$(< "$FIXTURE_DISTRIBUTION/gentle-cc-install.sh")"
-mutant=${mutant/'cp "$source_wrapper" "$tmp/gentle-cc"'/'printf "wrong wrapper\n" > "$tmp/gentle-cc"'}
+mutant=${mutant/'publish_artifacts "$tmp/$BIN_NAME"'/'printf "wrong wrapper\n" > "$tmp/$WRAPPER_NAME"; publish_artifacts "$tmp/$BIN_NAME"'}
 printf '%s\n' "$mutant" > "$FIXTURE_DISTRIBUTION/gentle-cc-install.sh"
 source_install
 red_status=0
-(bytes "$GENTLE_CC_DEST/gentle-cc" "$ROOT/gentle-cc") > "$F/red-log" 2>&1 || red_status=$?
+(bytes "$GENTLE_CC_DEST/gentle-cc" "$F/new-wrapper") > "$F/red-log" 2>&1 || red_status=$?
 eq "$red_status" 1 'deliberate mutant detection exit'
 printf 'RED: isolated wrong-wrapper installer exit=%s; assertion exit=%s; %s\n' "$status" "$red_status" "$(< "$F/red-log")"
 
@@ -168,15 +182,15 @@ for failure in wrapper-mismatch wrapper-missing wrapper-entry binary-mismatch bi
   release_prefix > "$F/expected-out"
   case "$failure" in
     wrapper-mismatch)
-      printf tampered > "$F/release/gentle-cc"
-      expected_error "checksum mismatch for gentle-cc: expected $(hash "$F/new-wrapper") got $(hash "$F/release/gentle-cc")"
+      printf tampered > "$F/release/$wrapper_asset"
+      expected_error "checksum mismatch for $wrapper_asset: expected $(hash "$F/new-wrapper") got $(hash "$F/release/$wrapper_asset")"
       # The verification line for the wrapper must not have been printed.
       { platform_line; printf 'downloading %s ...\nchecksum OK (%s): %s\ndownloading gentle-cc wrapper ...\n' "$asset" "$asset" "$(hash "$F/new-binary")"; } > "$F/expected-out" ;;
     wrapper-missing|wrapper-entry)
       if [ "$failure" = wrapper-missing ]; then
-        mv "$F/release/gentle-cc" "$F/removed-wrapper"
+        mv "$F/release/$wrapper_asset" "$F/removed-wrapper"
         expected_error 'wrapper download failed'
-      else manifest binary; expected_error 'no checksum entry for gentle-cc'; fi
+      else manifest binary; expected_error "no checksum entry for $wrapper_asset"; fi
       { platform_line; printf 'downloading %s ...\nchecksum OK (%s): %s\ndownloading gentle-cc wrapper ...\n' "$asset" "$asset" "$(hash "$F/new-binary")"; } > "$F/expected-out" ;;
     binary-mismatch|binary-entry)
       if [ "$failure" = binary-mismatch ]; then
@@ -194,7 +208,7 @@ done
 for requested in both binary; do
   fixture
   if [ "$requested" = both ]; then release; else
-    mv "$F/release/gentle-cc" "$F/removed-wrapper"; manifest binary
+    mv "$F/release/$wrapper_asset" "$F/removed-wrapper"; manifest binary
     release --no-wrapper --sha-only
   fi
   eq "$status" 0 'release exit'
@@ -207,41 +221,38 @@ for requested in both binary; do
     bytes "$GENTLE_CC_DEST/gentle-cc" "$F/old-wrapper"
     eq "$(mode "$GENTLE_CC_DEST/gentle-cc")" "$(mode "$F/old-wrapper")" 'unrequested wrapper mode'
   fi
-  { printf 'checksums.txt\n%s\n' "$asset"; [ "$requested" != both ] || printf 'gentle-cc\n'; } > "$F/expected-transport"
+  { printf 'checksums.txt\n%s\n' "$asset"; [ "$requested" != both ] || printf '%s\n' "$wrapper_asset"; } > "$F/expected-transport"
   bytes "$TRANSPORT_LOG" "$F/expected-transport"; empty_stage
   passed=$((passed + 1))
 done
 
-# Source wrapper provenance, early staging, and absent external wrapper.
+# Source wrapper must build from this distribution module, never external bytes.
 for external in present absent; do
   fixture
-  cp "$FIXTURE_DISTRIBUTION/gentle-cc" "$F/expected-wrapper"
-  if [ "$external" = present ]; then
-    printf 'unrelated external wrapper\n' > "$FIXTURE_SOURCE/gentle-cc"
-    export CHANGE_DISTRIBUTION=1
-  else mv "$GENTLE_CC_DEST/gentle-cc" "$F/removed-wrapper"; fi
+  if [ "$external" = present ]; then printf 'external wrapper\n' > "$FIXTURE_SOURCE/gentle-cc"; fi
   source_install; check_source_success
-  bytes "$GENTLE_CC_DEST/gentle-cc" "$F/expected-wrapper"; executable "$GENTLE_CC_DEST/gentle-cc"
-  printf 'git clone\ngit checkout\ngo build\n' > "$F/expected-tools"; bytes "$TOOL_LOG" "$F/expected-tools"
+  bytes "$GENTLE_CC_DEST/gentle-cc" "$F/new-wrapper"; executable "$GENTLE_CC_DEST/gentle-cc"
+  printf 'git clone\ngit checkout\ngo build ./cmd/gentle-cc linux/amd64\ngo build ./cmd/gentle-ai linux/amd64\n' > "$F/expected-tools"
+  bytes "$TOOL_LOG" "$F/expected-tools"
   passed=$((passed + 1))
 done
 for existing in yes no; do
   fixture
-  mv "$FIXTURE_DISTRIBUTION/gentle-cc" "$F/removed-distribution-wrapper"
-  printf 'external wrapper\n' > "$FIXTURE_SOURCE/gentle-cc"
+  mv "$FIXTURE_DISTRIBUTION/go.mod" "$F/removed-module"
   if [ "$existing" = no ]; then export GENTLE_CC_DEST="$F/not created destination"; fi
-  source_install; eq "$status" 1 'missing source wrapper exit'
-  : > "$F/expected-out"; expected_error "source wrapper unavailable: $FIXTURE_DISTRIBUTION/gentle-cc"; output_is
+  source_install; eq "$status" 1 'missing distribution module exit'
+  : > "$F/expected-out"; expected_error "source wrapper unavailable: $FIXTURE_DISTRIBUTION/go.mod"; output_is
   if [ "$existing" = yes ]; then preserved; else [ ! -e "$GENTLE_CC_DEST" ] || fail 'destination created'; fi
-  [ ! -e "$TOOL_LOG" ] || fail 'tools ran before wrapper preflight'; empty_stage
+  [ ! -e "$TOOL_LOG" ] || fail 'tools ran before module preflight'; empty_stage
   passed=$((passed + 1))
 done
 for existing in yes no; do
   fixture
-  mv "$FIXTURE_DISTRIBUTION/gentle-cc" "$F/removed-distribution-wrapper"
-  printf 'external wrapper\n' > "$FIXTURE_SOURCE/gentle-cc"
+  mv "$FIXTURE_DISTRIBUTION/go.mod" "$F/removed-module"
   if [ "$existing" = no ]; then mv "$GENTLE_CC_DEST/gentle-cc" "$F/removed-wrapper"; fi
   source_install --no-wrapper --sha-only; check_source_success quiet
+  printf 'git clone\ngit checkout\ngo build ./cmd/gentle-ai linux/amd64\n' > "$F/expected-tools"
+  bytes "$TOOL_LOG" "$F/expected-tools"
   if [ "$existing" = yes ]; then
     bytes "$GENTLE_CC_DEST/gentle-cc" "$F/old-wrapper"
     eq "$(mode "$GENTLE_CC_DEST/gentle-cc")" "$(mode "$F/old-wrapper")" 'unrequested wrapper mode'
@@ -385,4 +396,58 @@ CHILD
   printf 'child stderr\n' > "$F/expected-err"
   output_is; preserved; passed=$((passed + 1))
 done
+# Windows names are shared by staging/publication/rollback, not just downloads.
+for install_mode in release source; do
+  fixture
+  printf '#!/usr/bin/env bash\ncase "$1" in -s) echo MINGW64_NT ;; -m) echo x86_64 ;; esac\n' > "$F/tools/uname"
+  win_asset='gentle-ai-cc_4.3.1-cc.1_windows_amd64.exe'
+  win_wrapper='gentle-cc_4.3.1-cc.1_windows_amd64.exe'
+  cp "$F/new-binary" "$F/release/$win_asset"
+  cp "$F/new-wrapper" "$F/release/$win_wrapper"
+  printf '%s  %s\n%s  %s\n' "$(hash "$F/new-binary")" "$win_asset" "$(hash "$F/new-wrapper")" "$win_wrapper" > "$F/release/checksums.txt"
+  if [ "$install_mode" = release ]; then release --sha-only; else source_install --sha-only; fi
+  eq "$status" 0 'Windows pair exit'
+  bytes "$GENTLE_CC_DEST/gentle-ai-cc.exe" "$F/new-binary"
+  bytes "$GENTLE_CC_DEST/gentle-cc.exe" "$F/new-wrapper"
+  bytes "$GENTLE_CC_DEST/gentle-ai-cc" "$F/old-binary"
+  bytes "$GENTLE_CC_DEST/gentle-cc" "$F/old-wrapper"
+  eq "$(< "$F/stderr")" '' 'Windows stderr'; empty_stage
+  os=windows; asset="$win_asset"; wrapper_asset="$win_wrapper"
+  if [ "$install_mode" = release ]; then release_prefix > "$F/expected-out"
+  else { source_prefix; printf 'built SHA256: %s\n' "$(hash "$F/new-binary")"; } > "$F/expected-out"; fi
+  printf 'installed: %s/gentle-ai-cc.exe\n' "$GENTLE_CC_DEST" >> "$F/expected-out"
+  : > "$F/expected-err"; output_is
+  snapshot > "$F/before"
+  publication_faults; export FAIL_KIND=rename FAIL_AT=2
+  if [ "$install_mode" = release ]; then release --sha-only; release_prefix > "$F/expected-out"
+  else source_install --sha-only; source_prefix > "$F/expected-out"; fi
+  eq "$status" 1 'Windows second rename failure'
+  expected_error 'cannot replace gentle-cc.exe'; output_is; preserved
+  os=linux; asset='gentle-ai-cc_4.3.1-cc.1_linux_amd64'; wrapper_asset='gentle-cc_4.3.1-cc.1_linux_amd64'
+  passed=$((passed + 1))
+done
+
+# Six native wrapper artifacts are built in the distribution, never the companion.
+fixture
+cp "$ROOT/gentle-cc-release.sh" "$FIXTURE_DISTRIBUTION/"
+run "$FIXTURE_DISTRIBUTION/gentle-cc-release.sh" --repo "$FIXTURE_SOURCE" --version dev-native --out "$F/out"
+eq "$status" 0 'release build exit'
+eq "$(< "$F/stderr")" '' 'release build stderr'
+for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+  suffix=''; [ "${target%/*}" != windows ] || suffix=.exe
+  for product in gentle-ai-cc gentle-cc; do
+    name="${product}_dev-native_${target%/*}_${target#*/}${suffix}"
+    [ -f "$F/out/$name" ] || fail "missing release artifact $name"
+    if [ "$product" = gentle-cc ]; then bytes "$F/out/$name" "$F/new-wrapper"
+    else bytes "$F/out/$name" "$F/new-binary"; fi
+    grep -Fx "$(hash "$F/out/$name")  $name" "$F/out/checksums.txt" >/dev/null || fail "missing checksum $name"
+  done
+done
+eq "$(wc -l < "$F/out/checksums.txt" | tr -d ' ')" 12 'manifest count'
+[ ! -e "$F/out/gentle-cc" ] || fail 'obsolete universal wrapper published'
+run "$FIXTURE_DISTRIBUTION/gentle-cc-release.sh" --wrapper "$F/new-wrapper"
+eq "$status" 2 'obsolete override exit'
+eq "$(< "$F/stdout")" '' 'obsolete override stdout'
+eq "$(< "$F/stderr")" 'release: --wrapper is obsolete; native wrappers are built from this distribution module for each target' 'obsolete override stderr'
+passed=$((passed + 1))
 printf 'GREEN: %s Bash installer cases passed; POSIX mode support: %s.\n' "$passed" "$MODES"
