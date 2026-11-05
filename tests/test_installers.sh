@@ -146,11 +146,78 @@ check_source_success() {
   empty_stage
 }
 
+# Public installer help migrated from the legacy Python help suite. Pin the
+# current native names and guidance independently of the production comment block.
+installer_help_expected() {
+  cat <<'HELP'
+# gentle-cc-install.sh — checksum-verifying installer for the Command Code
+# companion of gentle-ai.
+#
+# Two modes:
+#
+#   --from-release URL_PREFIX
+#       Download the prebuilt binary for this OS/arch and the wrapper from
+#       URL_PREFIX, and verify both against checksums.txt in the same prefix.
+#       No Go required.
+#       Example: --from-release file:///path/to/prepared/native-release --version V
+#
+#   --from-source GIT_URL [--ref REF]
+#       Clone/checkout GIT_URL at REF (default the pinned commit) and build the
+#       companion with reproducibility flags. Build the native wrapper from this
+#       distribution's Go module, never from GIT_URL, before destination changes.
+#       The pinned source currently requires Go 1.25.10 or newer.
+#       A missing distribution Go module is an error unless --no-wrapper is given.
+#       Native assets: gentle-cc_<version>_<os>_<arch>[.exe], not legacy gentle-cc.
+#       4.3.1-cc.1 is legacy; explicitly select a prepared native release version.
+#
+# Options:
+#   --ref REF       Source commit/tag (default the pinned commit).
+#   --version V     Release asset version / source build version (default 4.3.1-cc.1).
+#   --no-wrapper    Install only the binary; leave any existing wrapper unchanged.
+#   --sha-only      Still installs; suppresses final next-step guidance only.
+# GENTLE_CC_DEST overrides the default destination below; it does not update PATH.
+#
+# Both modes install:
+#   ~/.local/bin/gentle-ai-cc     (companion binary; .exe on Windows)
+#   ~/.local/bin/gentle-cc        (native wrapper; .exe on Windows, unless --no-wrapper)
+# Controlled publication errors restore this invocation's changed files only.
+# Not an atomic pair or crash/signal-safe; see README for recovery limitations.
+HELP
+}
+assert_installer_help() {
+  eq "$status" 0 'installer help exit'
+  output_is
+  eq "$(find "$HOME" -mindepth 1 -print)" "$HOME/keep" 'help leaves HOME untouched'
+  bytes "$HOME/keep" "$F/expected-keep"
+  [ ! -e "$TOOL_LOG" ] || fail 'help invoked build tools'
+  [ ! -e "$TRANSPORT_LOG" ] || fail 'help invoked transport'
+  preserved
+}
+installer_help_checks() {
+  local preceding
+  for preceding in no yes; do
+    fixture
+    printf 'unchanged\n' > "$F/expected-keep"
+    cp "$F/expected-keep" "$HOME/keep"
+    installer_help_expected > "$F/expected-out"
+    : > "$F/expected-err"
+    if [ "$preceding" = no ]; then
+      run "$FIXTURE_DISTRIBUTION/gentle-cc-install.sh" --help
+    else
+      run "$FIXTURE_DISTRIBUTION/gentle-cc-install.sh" --from-source unused \
+        --ref unused-ref --version unused-version --no-wrapper --sha-only --help
+    fi
+    assert_installer_help
+    passed=$((passed + 1))
+  done
+}
+
 # Transport/build fixtures are platform-independent bytes. Pin the Unix matrix;
 # a separate Windows selection case below checks native executable names.
 os=linux; arch=amd64; ext=''
 asset="gentle-ai-cc_4.3.1-cc.1_${os}_${arch}${ext}"
 wrapper_asset="gentle-cc_4.3.1-cc.1_${os}_${arch}${ext}"
+installer_help_checks
 printf 'mode probe\n' > "$SUITE/mode-probe"
 chmod 640 "$SUITE/mode-probe"
 MODES=supported
