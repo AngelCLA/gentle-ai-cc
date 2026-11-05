@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gentle-cc-install.sh — reproducible, verifiable installer for the Command Code
+# gentle-cc-install.sh — checksum-verifying installer for the Command Code
 # companion of gentle-ai.
 #
 # Two modes:
@@ -12,9 +12,17 @@
 #
 #   --from-source GIT_URL [--ref REF]
 #       Clone/checkout GIT_URL at REF (default the pinned commit) and build the
-#       companion reproducibly. Requires Go 1.25+. The wrapper is staged from
-#       beside this installer before changing the destination, not from GIT_URL.
+#       companion with reproducibility flags. The wrapper comes from beside this
+#       installer; staged before destination changes, not from GIT_URL.
+#       The pinned source currently requires Go 1.25.10 or newer.
 #       A missing wrapper is an error unless --no-wrapper is given.
+#
+# Options:
+#   --ref REF       Source commit/tag (default the pinned commit).
+#   --version V     Release asset version / source build version (default 4.3.1-cc.1).
+#   --no-wrapper    Install only the binary; leave any existing wrapper unchanged.
+#   --sha-only      Still installs; suppresses final next-step guidance only.
+# GENTLE_CC_DEST overrides the default destination below; it does not update PATH.
 #
 # Both modes install:
 #   ~/.local/bin/gentle-ai-cc     (companion binary)
@@ -39,7 +47,7 @@ while [ $# -gt 0 ]; do
     --version) VERSION="$2"; shift 2 ;;
     --sha-only) SHA_ONLY=1; shift ;;
     --no-wrapper) NO_WRAPPER=1; shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done

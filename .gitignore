@@ -1,3 +1,7 @@
 # Build output (release artifacts are uploaded, not committed)
 dist/
 *.exe
+
+# Python bytecode
+__pycache__/
+*.py[cod]

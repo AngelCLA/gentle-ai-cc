@@ -269,7 +269,7 @@ gentle-cc — Command Code companion for gentle-ai
   gentle-cc sync    [args]   Sync only Command Code (companion)
   gentle-cc install [args]   Install only Command Code (companion)
   gentle-cc doctor  [args]   Run doctor with the companion binary
-  gentle-cc sync-all[args]   Official sync for other agents + Command Code
+  gentle-cc sync-all [args]  Official sync for other agents + Command Code
 
 sync/install/sync-all reject --agent, -agent, --agents, -agents, bare or =value
 (also with help/dry-run or after --), before preflight, builds, binaries or writes:

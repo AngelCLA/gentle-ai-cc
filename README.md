@@ -1,14 +1,15 @@
-# gentle-cc — a reproducible, distributable Command Code companion for gentle-ai
+# gentle-cc — Command Code companion distribution for gentle-ai
 
 Use the **official `gentle-ai` release** for every supported agent *and* use
 **Command Code** (`command-code`), without waiting for upstream to accept a
-Command Code adapter. One verified binary; no full repo clone for users.
+Command Code adapter. Release installation needs no gentle-ai source checkout;
+real end-to-end Linux validation remains pending.
 
 > Command Code support is **not** upstream. Issues #1913 (approved, then
 > `NOT_PLANNED`), #4105 and #5790 were closed under the policy *"we're not
 > accepting new agents for now."* This is a community workaround.
 
-## Quick install (no Go, no repo clone of gentle-ai)
+## Quick install (release path: no Go or gentle-ai checkout)
 
 This repository is **private**, so use an authenticated clone (not the anonymous
 `curl` form):
@@ -18,11 +19,21 @@ git clone https://github.com/AngelCLA/gentle-ai-cc.git
 cd gentle-ai-cc && ./install.sh
 ```
 
-`install.sh` uses a local `dist/` when present, otherwise downloads the release
-with your authenticated `gh`, otherwise builds from source if you set
-`GENTLE_CC_SOURCE`. It installs the companion binary for your OS/arch **and** the
+`install.sh` first honors an explicit `GENTLE_CC_SOURCE` override (source build).
+Otherwise it selects local artifacts when `dist/checksums.txt` exists, or downloads
+the release with authenticated `gh`. There is **no automatic source fallback**;
+a selected incomplete or invalid local release fails rather than downloading.
+Release mode installs the companion binary for your OS/arch **and** the
 `gentle-cc` wrapper, verifying both against `checksums.txt`, to `~/.local/bin`.
-Then:
+Checksums establish consistency with the manifest, not publisher authenticity.
+
+Ensure that directory is on `PATH` (installers do not configure your shell):
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Then, after reviewing the shared-state and concurrency warnings below:
 
 ```bash
 gentle-cc install --preset full-gentleman   # first time
@@ -30,6 +41,23 @@ gentle-cc sync                              # subsequent
 ```
 
 Pin a specific release with `GENTLE_CC_VERSION=4.3.1-cc.1`.
+`GENTLE_CC_DEST` changes the install directory, not the wrapper's binary lookup:
+for a custom directory, add it to `PATH` and set `GENTLE_CC_BIN` to the installed
+companion's full path.
+
+### Prerequisites
+
+- Linux/macOS: Bash and standard POSIX command-line tools; Python 3 with
+  `fcntl.flock` and a filesystem with advisory locking for mutating wrapper calls.
+- Release installation: `curl` (including the local `file://` path), `sha256sum`
+  or `shasum -a 256`, and trusted release artifacts/manifest.
+- Private quick path: Git for the authenticated clone; authenticated `gh` only
+  when no local release is selected. Low-level URL mode does not use `gh`.
+- Source builds and release packaging: Git and a compatible Go toolchain with
+  required module dependencies available. The pinned source currently requires
+  Go 1.25.10 or newer; other refs may differ. Release users do not need Go.
+- Windows: PowerShell and `Get-FileHash`; `gh` authenticated for remote releases.
+  Use an explicit destination and direct binary invocation as shown below.
 
 ## What this is
 
@@ -42,32 +70,39 @@ the shared `state.json` compatible with the official binary.
 | --- | --- |
 | `gentle-ai-cc` | Companion binary (has the Command Code adapter). |
 | `gentle-cc` | Wrapper: runs the companion only for `command-code`, cleans shared state. |
-| `gentle-cc-release.sh` | Builds reproducible per-platform binaries + wrapper + `checksums.txt`. |
-| `gentle-cc-install.sh` | Installs verified binaries from a release **or** builds from a pinned commit. |
+| `gentle-cc-release.sh` | Packages checked-out source for six targets + wrapper + `checksums.txt`. |
+| `gentle-cc-install.sh` | Verifies release checksums before installation **or** builds from a source ref. |
 | `install.sh` | POSIX convenience installer (clone-based; private-repo safe). |
-| `install.ps1` | Windows installer (PowerShell; verified download). |
+| `install.ps1` | Windows installer (PowerShell; checksum verification, runtime unverified here). |
 
 ## Platform support
 
-| OS / arch | Companion binary | Installer | Wrapper (`gentle-cc`) |
-| --- | --- | --- | --- |
-| Linux amd64 / arm64 | Yes | `install.sh` | Yes (bash) |
-| macOS amd64 / arm64 | Yes | `install.sh` | Yes (bash) |
-| Windows amd64 / arm64 | Yes | `install.ps1` | **No** — bash script |
+Packaging targets are not runtime certification or a claim that assets have
+been published:
 
-On **Linux/macOS** the full flow (`install.sh` → `gentle-cc install/sync`) works
-as documented. Mutating wrapper commands also require **Python 3** on `PATH`
-with `fcntl.flock` (for OS locking, shared-state validation and atomic cleanup);
-release users do not need Go. Linux fixture tests exercise the lock; macOS uses
-the same POSIX API but has not been runtime-verified in this environment.
+| OS / arch packaging targets | Installer / wrapper | Runtime evidence here |
+| --- | --- | --- |
+| Linux amd64 / arm64 | `install.sh` / Bash wrapper | Fake-binary fixture tests on the host; real E2E pending, not proof for both architectures. |
+| macOS amd64 / arm64 | `install.sh` / Bash wrapper | Not runtime-verified. |
+| Windows amd64 / arm64 | `install.ps1` / no native wrapper | Not runtime-verified; PowerShell unavailable. |
+
+Mutating wrapper commands require **Python 3** on `PATH` with `fcntl.flock`
+(for OS locking, shared-state validation and atomic cleanup). Linux fixture tests
+exercise the lock; macOS uses the same POSIX API but remains unverified here.
 
 On **Windows**, use `install.ps1` to install the companion binary, then call the
 binary directly:
 
 ```powershell
-gentle-ai-cc.exe install --agent command-code --preset full-gentleman
-gentle-ai-cc.exe sync --agent command-code
+$env:GENTLE_CC_DEST = Join-Path $env:LOCALAPPDATA "gentle-cc"
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+& (Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe") install --agent command-code --preset full-gentleman
+& (Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe") sync --agent command-code
 ```
+
+This example does not require the destination to be on `PATH`. The current
+PowerShell installer's final message suggests Git Bash/WSL; that wording is not
+runtime evidence and does **not** override the locking restriction below.
 
 The `gentle-cc` wrapper is a **bash** script (it does the `state.json` cleanup
 after each operation). **Git Bash is not a supported mutating wrapper runtime**:
@@ -92,8 +127,9 @@ program compiled from the branch that also carries the Command Code adapter. It 
 not a plugin and does not load the official binary or the project source at run
 time.
 
-Verified: `gentle-ai-cc install --agent command-code` succeeds in a clean `HOME`
-with no official `gentle-ai` on `PATH` and no checkout present.
+Previously recorded: `gentle-ai-cc install --agent command-code` succeeded in a
+clean `HOME` without an official binary or checkout. That historical observation
+has not been revalidated here and is not current end-to-end proof.
 
 Who needs what:
 
@@ -119,13 +155,22 @@ Data the companion writes (same shape as any managed agent):
 
 ## Installation options
 
-### A. Prebuilt release (recommended, no Go)
+### A. Prebuilt release (no Go)
+
+For this private repository, prefer the authenticated clone + `./install.sh`
+quick path above. The low-level installer uses **unauthenticated `curl`**, not
+GitHub CLI credentials. Use it only with an accessible endpoint or trusted local
+release directory, for example:
 
 ```bash
-gentle-cc-install.sh --from-release https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.1
+./gentle-cc-install.sh --from-release file:///absolute/path/to/release --version 4.3.1-cc.1
 ```
 
-### B. Build from source at a pinned commit (needs Go 1.25+)
+The directory must contain `checksums.txt`, the matching platform/version binary,
+and `gentle-cc` (unless `--no-wrapper`). A private GitHub release URL does not
+become accessible just because `gh` is authenticated.
+
+### B. Build from source at a pinned commit (needs Go)
 
 This builds the **gentle-ai** module, so `--from-source` must point at a checkout
 of gentle-ai that contains the Command Code adapter (a fork/branch with
@@ -143,8 +188,13 @@ binary without needing the distribution wrapper (any existing wrapper is left
 unchanged). Both Bash modes use the publication recovery described below.
 
 ```bash
-gentle-cc-install.sh --from-source https://github.com/<you>/gentle-ai.git --ref <pinned-commit>
+./gentle-cc-install.sh --from-source https://github.com/<you>/gentle-ai.git --ref <pinned-commit>
 ```
+
+`--ref` selects the source commit/tag (default
+`768e6b213c795f574ee837e3a6ce9b4274ee6280`). `--version` selects the release asset
+version or injected source build version (default `4.3.1-cc.1`); it does not
+select a source ref. See `./gentle-cc-install.sh --help` for options.
 
 Both install `~/.local/bin/gentle-ai-cc` and, unless `--no-wrapper`,
 `~/.local/bin/gentle-cc`. For releases, all requested artifacts are staged and
@@ -183,7 +233,7 @@ gentle-cc build             # build the companion from a branch checkout
 gentle-cc install [args]    # install only Command Code (companion)
 gentle-cc sync    [args]    # refresh only Command Code (companion)
 gentle-cc doctor  [args]    # run doctor with the companion binary
-gentle-cc sync-all[args]    # official sync for other agents + Command Code
+gentle-cc sync-all [args]   # official sync for other agents + Command Code
 ```
 
 ### Wrapper-owned agent selection
@@ -219,16 +269,22 @@ these forms without depending on their order or parser boundaries. This is sourc
 evidence, not execution of that checkout. Other companion versions and the
 installed official binary's parser have not been verified.
 
-## Reproducibility guarantees
+## Reproducibility and integrity
 
-- Builds use `-trimpath -buildvcs=false` and inject the version from
-  `--version`, so the binary does not depend on the build directory or VCS
-  state. Verified: two runs of the same commit produce **byte-identical**
-  binaries (identical `sha256` for all six platform artifacts).
-- The installer refuses to install when a downloaded artifact's `sha256` does
-  not match `checksums.txt` (verified against a tampered manifest).
-- Pin the commit (`--ref`) or the release tag in shared instructions so
-  everyone gets the same bytes.
+- Source installation and release packaging use `-trimpath -buildvcs=false`,
+  `CGO_ENABLED=0`, and an injected `--version`. These reduce build-path/VCS
+  variation, not all sources of variation. Byte-identical builds require identical
+  clean source inputs, Go toolchain, dependencies, target and build environment.
+- `gentle-cc-release.sh` builds the **currently checked-out source**, including
+  local changes; it does not pin or enforce a clean commit. Inspect that external
+  checkout and record its commit, cleanliness and toolchain before packaging.
+  Wrapper bytes are also an input. Previously recorded six-target matching hashes
+  have not been revalidated here; there is no universal reproducibility guarantee.
+- Installer fixture tests cover checksum rejection with fake artifacts; this is
+  not proof of real release provenance or runtime behavior. Trust the source of
+  the manifest as well as checking hashes.
+- Pin the source commit (`--ref`) or release tag in shared instructions. A tag or
+  version string alone does not prove immutable, identical inputs.
 
 ## Installer regression checks
 
@@ -236,11 +292,14 @@ Run isolated fixture tests (no real releases, Go builds, or installs into your
 home directory):
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
-bash -n gentle-cc-install.sh install.sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_help.py -v
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_wrapper.py -v
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_installers.py -v
+bash -n gentle-cc gentle-cc-install.sh install.sh
 ```
 
-The Python suite runs `tests/installers.ps1` when `pwsh` or `powershell` is on
+These focused suites do not execute the separate future Linux probe. The
+installer suite runs `tests/installers.ps1` when `pwsh` or `powershell` is on
 `PATH`, and reports a skip otherwise. You can also run it directly:
 
 ```powershell
@@ -253,8 +312,14 @@ local artifacts, and staging cleanup.
 
 ## Publishing a release (for the maintainer)
 
-1. Keep the branch rebased on `origin/main` so guidance does not drift behind
-   the official release.
+These are manual maintainer instructions, not a release performed or authorized
+by this preparation. Licensing, release publication and support commitments are
+not established here.
+
+1. In the **external gentle-ai companion checkout**, keep the adapter branch
+   rebased on its upstream `origin/main` so guidance tracks the official release.
+   This does not mean rebasing this scripts-only distribution onto gentle-ai.
+   Review upstream changes and verify the target runtimes before publication.
 2. Build artifacts (binaries + wrapper + manifest):
 
    ```bash
@@ -267,9 +332,11 @@ local artifacts, and staging cleanup.
    gh release create 4.3.1-cc.1 dist/* --title 4.3.1-cc.1 --notes "Command Code companion 4.3.1-cc.1"
    ```
 
-4. Share the `--from-release` URL / the one-line `install.sh`.
-5. On each new upstream release: rebase, bump `--version`, rebuild, re-upload,
-   update the pinned `--ref`/tag.
+4. Share the authenticated clone + `./install.sh` instructions for this private
+   repository; share a low-level URL only when recipients can access it via curl.
+5. On each new upstream release: update the external adapter checkout, bump
+   `--version`, verify, rebuild and publish only when separately authorized;
+   update the pinned `--ref`/tag in distribution instructions.
 
 ## The shared-state detail
 
@@ -356,13 +423,16 @@ verify compatibility with a real `sync`.
 | `GENTLE_CC_REPO` | `~/dev/gentle-ai` | Branch checkout used to build the companion. |
 | `GENTLE_CC_BIN` | `~/.local/bin/gentle-ai-cc` | Companion binary path. |
 | `GENTLE_AI_BIN` | `gentle-ai` | Official binary used by `sync-all`. |
-| `GENTLE_CC_DEST` | `~/.local/bin` | Where the installer writes binaries. |
-| `GENTLE_CC_VERSION` | `4.3.1-cc.1` | Release tag used by `install.sh`. |
+| `GENTLE_CC_DEST` | Bash: `~/.local/bin`; PowerShell: `$env:LOCALAPPDATA\gentle-cc` | Installer destination; does not change wrapper lookup or `PATH`. |
+| `GENTLE_CC_VERSION` | `4.3.1-cc.1` | Release tag / build version passed by `install.sh`; release tag in PowerShell. |
+| `GENTLE_CC_SOURCE` | Unset | `install.sh` source Git URL; explicit override before local/remote releases. |
+| `GENTLE_CC_REF` | Pinned commit above | Source ref used by `install.sh` with `GENTLE_CC_SOURCE`; ignored for releases. |
+| `GENTLE_CC_OWNER_REPO` | `AngelCLA/gentle-ai-cc` | GitHub repository for authenticated release downloads in `install.sh` / `install.ps1`. |
 
 ## Limitations
 
-- **Not upstream.** Maintained by whoever publishes it; not supported by the
-  gentle-ai maintainers.
+- **Not upstream.** Community workaround, not supported by the gentle-ai
+  maintainers; no support commitment is established by this repository preparation.
 - **Build-from-source needs the full module.** Go's `internal/` rule forbids an
   external module from importing the adapter, so a source build needs the whole
   gentle-ai module. Users installing a **prebuilt release** do not need it.

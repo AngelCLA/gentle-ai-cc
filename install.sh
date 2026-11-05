@@ -4,9 +4,10 @@
 # Private repository note: anonymous curl / public release downloads do not work
 # against a private repo. This script therefore prefers, in order:
 #
-#   1. a local ./dist directory (artifacts from gentle-cc-release.sh)
-#   2. an authenticated download of the release via `gh`
-#   3. building from source (GENTLE_CC_SOURCE / GENTLE_CC_REF)
+#   1. an explicit source override (GENTLE_CC_SOURCE / GENTLE_CC_REF)
+#   2. local ./dist/checksums.txt (artifacts from gentle-cc-release.sh)
+#   3. an authenticated download of the release via `gh`
+# There is no automatic source fallback if release selection/download fails.
 #
 # Environment:
 #   GENTLE_CC_VERSION   release tag/prefix (default 4.3.1-cc.1)
