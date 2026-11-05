@@ -2,6 +2,7 @@ package wrapper_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,7 @@ import (
 )
 
 // Platform-tagged callers deliver a real native signal, not a test bypass.
-func signalLifetime(t *testing.T, configure func(*exec.Cmd), interrupt func(*os.Process) error) {
+func signalLifetime(t *testing.T, expectedCode int, configure func(*exec.Cmd), interrupt func(*os.Process) error) {
 	f := setup(t)
 	f.env = append(f.env, "FIXTURE_BARRIER=1", "FIXTURE_IGNORE_SIGNALS=1")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -45,8 +46,12 @@ func signalLifetime(t *testing.T, configure func(*exec.Cmd), interrupt func(*os.
 	go func() { done <- owner.Wait() }()
 	select {
 	case err := <-done:
-		if err == nil {
-			t.Fatal("signal should exit nonzero")
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) {
+			t.Fatalf("signal should exit with status %d, got error %v", expectedCode, err)
+		}
+		if code := exit.ExitCode(); code != expectedCode {
+			t.Fatalf("signal should exit with status %d, got %d", expectedCode, code)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("invoking process did not exit after signal")

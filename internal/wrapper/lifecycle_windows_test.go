@@ -29,7 +29,7 @@ func TestWindowsControlBreakKeepsLockForIgnoringWriter(t *testing.T) {
 	if console == 0 {
 		t.Skip("no Windows console attached: Control-Break delivery cannot be certified")
 	}
-	signalLifetime(t, func(cmd *exec.Cmd) {
+	signalLifetime(t, 130, func(cmd *exec.Cmd) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
 	}, func(process *os.Process) error {
 		ok, _, err := syscall.NewLazyDLL("kernel32.dll").NewProc("GenerateConsoleCtrlEvent").Call(1, uintptr(process.Pid))
