@@ -188,15 +188,16 @@ gentle-cc sync-all[args]    # official sync for other agents + Command Code
 
 ### Wrapper-owned agent selection
 
-`sync`, `install`, and `sync-all` reject every user token equal to `--agent` or
-starting with `--agent=`, including empty values, repeated selectors, and attempts
-to select `command-code` itself. This also applies with `--help`, `-h`, dry-run,
+`sync`, `install`, and `sync-all` reject every user token named `--agent`,
+`-agent`, `--agents`, or `-agents`, bare or with `=value`, including empty values,
+repeated selectors, and attempts to select `command-code` itself.
+This also applies with any help alias, dry-run,
 and after `--`. Rejection occurs before Python/state preflight, locking, builds,
 either binary invocation, or any state writes: exit status **1**, empty stdout,
 and exactly this stderr line:
 
 ```text
-gentle-cc: --agent is managed by the wrapper; not allowed for sync, install, or sync-all
+gentle-cc: agent selection is managed by the wrapper; not allowed for sync, install, or sync-all
 ```
 
 Omit the selector: the wrapper supplies `command-code` to the companion and, for
@@ -207,11 +208,16 @@ is not a restriction on direct binary invocations.
 The check is deliberately token-based, not an emulation of the external parser.
 A standalone `--agent=pi` is rejected even after an option that might consume it
 as data; use an attached value such as `--preset=--agent=pi` to express that data.
-Embedded text such as `some--agent=pi` is forwarded unchanged. External companion
-parser verification is **blocked pending target-specific consent** to inspect
-its implementation outside this repository. Repeated-selector interpretation,
-unknown short aliases, and other parser-specific selector forms remain unresolved;
-the tests prove this wrapper guard, not complete parser-level agent isolation.
+Embedded text such as `some--agent=pi` is forwarded unchanged.
+
+Read-only source inspection of the companion checkout pinned at
+`768e6b213c795f574ee837e3a6ce9b4274ee6280` confirmed that Go `flag.FlagSet`
+registers `agent` and `agents` to the same append-only slice: repeated selectors
+accumulate rather than replace the wrapper's selector. Both one/two hyphens and
+separate/attached values are supported; no `-a` is registered. The guard covers
+these forms without depending on their order or parser boundaries. This is source
+evidence, not execution of that checkout. Other companion versions and the
+installed official binary's parser have not been verified.
 
 ## Reproducibility guarantees
 
@@ -319,15 +325,27 @@ wrapper or each other.** Neither external binary honors this wrapper-only lock;
 atomic cleanup cannot prevent their lost updates. `sync-all` runs official sync
 first and companion sync second, but is not a transaction with rollback.
 
-`--help` and `-h` always skip wrapper cleanup and locking. For `--dry-run`, the
-**last value wins**: `--dry-run --dry-run=false` is mutating and requires Python
-and the lock; `--dry-run=false --dry-run=true` skips cleanup and locking. A bare
-`--dry-run` means true. Go boolean spellings are supported: `1`, `t`, `T`, `true`,
-`TRUE`, `True` mean true; `0`, `f`, `F`, `false`, `FALSE`, `False` mean false.
-Arguments accepted by the agent-selection guard are forwarded unchanged.
-Informational invocations leave shared state
-untouched by the wrapper; the binary determines its own behavior. `sync-all`
-still needs Python to read the other-agent list.
+After selector rejection, companion-only `sync`/`install` recognize `--help`,
+`-help`, `-h`, and `--h` anywhere, matching the pinned companion's pre-dispatch
+help scan (even after `--` or a positional). Those calls skip cleanup and locking.
+For `sync-all`, the official parser is unverified: only unambiguous `--help`/`-h`
+combined solely with recognized dry-run/help tokens bypass locking. Other help
+aliases, option values, unknown options, positionals, and `--` take the locked
+preflight/cleanup path, even if the companion itself would only show help.
+
+For a sequence consisting only of `--dry-run`/`-dry-run` tokens, the **last value
+wins**, including mixed hyphens: `--dry-run -dry-run=false` requires Python,
+locking, and cleanup; `-dry-run=false --dry-run` skips locking and cleanup.
+Bare flags mean true; values must be attached with `=`. Go boolean spellings are
+supported: `1`, `t`, `T`, `true`, `TRUE`, `True` mean true; `0`, `f`, `F`, `false`,
+`FALSE`, `False` mean false. Any other token makes dry-run classification
+conservative: for example `--preset full --dry-run`, `-- --dry-run`, and
+`--dry-run false` use the locked path instead of guessing parser semantics.
+The wrapper does not validate every command-specific option; the binary still
+parses the unchanged arguments and may reject them. A conservative path can
+create the persistent lock file and perform cleanup even for a binary dry-run.
+Straightforward informational invocations leave state untouched by the wrapper;
+`sync-all` still needs Python to read the other-agent list.
 Dry-run can hide unsupported-agent errors because it does not build adapters;
 verify compatibility with a real `sync`.
 

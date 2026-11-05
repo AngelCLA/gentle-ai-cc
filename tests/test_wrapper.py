@@ -43,7 +43,10 @@ class WrapperTests(unittest.TestCase):
             ('--', '--agent', 'pi'), ('--', '--agent=pi'),
             ('--preset', '--agent=pi'),
         )
-        error = ('gentle-cc: --agent is managed by the wrapper; '
+        selectors = tuple(tuple(token.replace('--agent', spelling) for token in args)
+                          for spelling in ('--agent', '-agent', '--agents', '-agents')
+                          for args in selectors)
+        error = ('gentle-cc: agent selection is managed by the wrapper; '
                  'not allowed for sync, install, or sync-all\n')
         empty = self.home / 'empty'
         empty.mkdir()
@@ -83,6 +86,80 @@ class WrapperTests(unittest.TestCase):
                                     self.assertEqual(sorted(p.name for p in state.parent.iterdir()),
                                                      ['gentle-cc.lock', 'state.json']
                                                      if condition == 'busy' else ['state.json'])
+
+    def test_ambiguous_or_effective_false_options_use_locked_mutation(self):
+        # Fake writer independently probes the actual OS lock, not just its file.
+        import sys
+        self.bin.write_text(f'#!{sys.executable}\n' + '''import errno, fcntl, json, os, sys
+from pathlib import Path
+home = Path(os.environ['HOME'])
+with (home / '.gentle-ai/gentle-cc.lock').open('a') as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        if error.errno not in (errno.EAGAIN, errno.EACCES): raise
+    else:
+        print('fixture: mutation without lock', file=sys.stderr)
+        sys.exit(99)
+print('\\n'.join(sys.argv[1:]))
+(home / 'called').write_text('called')
+(home / '.gentle-ai/state.json').write_text(json.dumps(
+    {'installed_agents': ['command-code', 'pi'], 'other': 43}))
+''')
+        cases = [('--dry-run', '-dry-run=false'),
+                 ('-dry-run', '--dry-run=false'),
+                 ('--', '--dry-run'), ('positional', '--dry-run'),
+                 ('--preset', '--dry-run'), ('--preset=full', '--dry-run'),
+                 ('--unknown', '--dry-run'), ('--dry-run=invalid', '--dry-run'),
+                 ('--dry-run', 'false'), ('-dry-run=false', '--dry-run', 'true'),
+                 ('---dry-run', '--dry-run'),
+                 ('--dry-run', '--', '-dry-run=false')]
+        empty = self.home / 'empty'
+        empty.mkdir()
+        for command in ('sync', 'install', 'sync-all'):
+            extra = [('positional', '--help'), ('--', '--help'),
+                     ('--preset', '--help'), ('-help',), ('--h',)] if command == 'sync-all' else []
+            for flags in cases + extra:
+                with self.subTest(command=command, flags=flags), tempfile.TemporaryDirectory() as home:
+                    state = Path(home) / '.gentle-ai/state.json'
+                    state.parent.mkdir()
+                    state.write_text(json.dumps(self.original))
+                    before = state.read_bytes(), state.stat().st_mtime_ns
+                    self.assert_result(self.run_wrapper(command, *flags, HOME=home, PATH=str(empty)),
+                                       1, '', 'gentle-cc: python3 required for shared-state cleanup\n')
+                    self.assertFalse((Path(home) / 'called').exists())
+                    self.assertFalse((state.parent / 'gentle-cc.lock').exists())
+                    self.assertEqual((state.read_bytes(), state.stat().st_mtime_ns), before)
+                    lock = state.parent / 'gentle-cc.lock'
+                    lock.mkdir()
+                    self.assert_result(self.run_wrapper(command, *flags, HOME=home), 1, '',
+                                       'gentle-cc: shared state busy (gentle-cc.lock); see README recovery instructions\n')
+                    self.assertFalse((Path(home) / 'called').exists())
+                    self.assertEqual((state.read_bytes(), state.stat().st_mtime_ns), before)
+                    lock.rmdir()
+                    self.assert_result(self.run_wrapper(command, *flags, HOME=home), 0,
+                                       self.dry_run_stdout(command, flags))
+                    self.assertTrue((Path(home) / 'called').exists())
+                    self.assertEqual(json.loads(state.read_text()),
+                                     {'installed_agents': ['pi'], 'other': 43})
+
+    def test_single_dash_dry_run_and_companion_help_aliases_are_informational(self):
+        before = self.state.read_bytes(), self.state.stat().st_mtime_ns
+        lock = self.state.parent / 'gentle-cc.lock'
+        lock.mkdir()
+        for command in ('sync', 'install', 'sync-all'):
+            flags_list = [('-dry-run',), ('-dry-run=false', '--dry-run'),
+                          ('--dry-run=false', '-dry-run=True')]
+            if command != 'sync-all':
+                flags_list += [(alias,) for alias in ('-help', '--h')]
+                flags_list += [('--', '--help'), ('--preset', '-help'),
+                               ('positional', '--h'), ('--dry-run=false', '-help')]
+            for flags in flags_list:
+                with self.subTest(command=command, flags=flags):
+                    self.assert_result(self.run_wrapper(command, *flags), 0,
+                                       self.dry_run_stdout(command, flags))
+                    self.assertEqual((self.state.read_bytes(), self.state.stat().st_mtime_ns), before)
+                    self.assertTrue(lock.is_dir())
 
     def test_selector_text_inside_values_is_forwarded(self):
         # These tokens are not selector syntax; no external parser assumptions.

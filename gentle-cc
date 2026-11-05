@@ -83,30 +83,48 @@ clean_state() { state_action clean; }
 official_agents_from_state() { state_action agents; }
 
 informational() {
-  local arg dry_run=false
+  local route="$1" arg option dry_run=false help=false
+  shift
+  # Pinned companion app dispatch scans help before parsing, even after --.
+  # The official binary is not pinned: sync-all only accepts unambiguous help.
+  if [ "$route" != sync-all ]; then
+    for arg in "$@"; do
+      case "$arg" in --help|-help|-h|--h) return 0 ;; esac
+    done
+  fi
   for arg in "$@"; do
+    # Normalize exactly one or two hyphens, not arbitrary leading dashes.
     case "$arg" in
-      --help|-h) return 0 ;;
-      # Match Go boolean spellings; repeated flags use the last value.
-      --dry-run|--dry-run=1|--dry-run=t|--dry-run=T|--dry-run=true|--dry-run=TRUE|--dry-run=True)
+      --*) option="${arg#--}" ;;
+      -*) option="${arg#-}" ;;
+      *) return 1 ;;
+    esac
+    case "$option" in
+      help|h)
+        case "$arg" in --help|-h) help=true ;; *) return 1 ;; esac ;;
+      # Go booleans take attached values only; last occurrence wins.
+      dry-run|dry-run=1|dry-run=t|dry-run=T|dry-run=true|dry-run=TRUE|dry-run=True)
         dry_run=true ;;
-      --dry-run=0|--dry-run=f|--dry-run=F|--dry-run=false|--dry-run=FALSE|--dry-run=False)
+      dry-run=0|dry-run=f|dry-run=F|dry-run=false|dry-run=FALSE|dry-run=False)
         dry_run=false ;;
+      # Includes --, positionals, unknown options and possible option values.
+      # Lock rather than emulate command-specific flag/value parsing.
+      *) return 1 ;;
     esac
   done
-  [ "$dry_run" = true ]
+  [ "$help" = true ] || [ "$dry_run" = true ]
 }
 
 # Wrapper-owned routes must never forward user agent selectors to either binary.
-# Scan tokens even after -- or another option: external parser semantics are not
-# verified here, so a standalone selector-shaped token is conservatively denied.
+# Pinned Go flag parser appends both agent/agents with one or two hyphens.
+# Scan even after -- or another option; deny selector-shaped standalone tokens.
 # Embedded data such as --preset=--agent=pi is not a selector token.
 reject_agent_selectors() {
   local arg
   for arg in "$@"; do
     case "$arg" in
-      --agent|--agent=*)
-        die "--agent is managed by the wrapper; not allowed for sync, install, or sync-all" ;;
+      --agent|--agent=*|-agent|-agent=*|--agents|--agents=*|-agents|-agents=*)
+        die "agent selection is managed by the wrapper; not allowed for sync, install, or sync-all" ;;
     esac
   done
 }
@@ -201,16 +219,17 @@ mutate() {
       printf 'No other agents recorded; skipping official sync.\n'
     fi
     printf 'Companion sync: %s\n' "$CC_AGENT"
-    command=sync
   fi
-  run_companion "$command" --agent "$CC_AGENT" "$@"
+  run_companion "$command" "$@"
 }
 
 run_companion() {
+  local route="$1" command="$1" rc=0
+  shift
+  if [ "$command" = sync-all ]; then command=sync; fi
   ensure_bin
-  local rc=0
-  "$BIN" "$@" || rc=$?
-  if ! informational "$@"; then clean_state; fi
+  "$BIN" "$command" --agent "$CC_AGENT" "$@" || rc=$?
+  if ! informational "$route" "$@"; then clean_state; fi
   return "$rc"
 }
 
@@ -219,19 +238,19 @@ case "${1:-help}" in
   sync)
     shift
     reject_agent_selectors "$@"
-    if ! informational "$@"; then begin_mutation sync "$@"; fi
-    run_companion sync --agent "$CC_AGENT" "$@" ;;
+    if ! informational sync "$@"; then begin_mutation sync "$@"; fi
+    run_companion sync "$@" ;;
   install)
     shift
     reject_agent_selectors "$@"
-    if ! informational "$@"; then begin_mutation install "$@"; fi
-    run_companion install --agent "$CC_AGENT" "$@" ;;
+    if ! informational install "$@"; then begin_mutation install "$@"; fi
+    run_companion install "$@" ;;
   doctor)
     shift; ensure_bin; "$BIN" doctor "$@" ;;
   sync-all)
     shift
     reject_agent_selectors "$@"
-    if informational "$@"; then require_python; else begin_mutation sync-all "$@"; fi
+    if informational sync-all "$@"; then require_python; else begin_mutation sync-all "$@"; fi
     others="$(official_agents_from_state)"
     ensure_bin
     if [ -n "$others" ]; then
@@ -241,7 +260,7 @@ case "${1:-help}" in
       printf 'No other agents recorded; skipping official sync.\n'
     fi
     printf 'Companion sync: %s\n' "$CC_AGENT"
-    run_companion sync --agent "$CC_AGENT" "$@" ;;
+    run_companion sync-all "$@" ;;
   help|--help|-h|*)
     cat <<'EOF'
 gentle-cc — Command Code companion for gentle-ai
@@ -252,19 +271,21 @@ gentle-cc — Command Code companion for gentle-ai
   gentle-cc doctor  [args]   Run doctor with the companion binary
   gentle-cc sync-all[args]   Official sync for other agents + Command Code
 
-sync/install/sync-all reject user --agent and --agent=... (also with help/dry-run
-or after --), before preflight, builds, binary execution or state writes. Error:
-gentle-cc: --agent is managed by the wrapper; not allowed for sync, install, or sync-all
+sync/install/sync-all reject --agent, -agent, --agents, -agents, bare or =value
+(also with help/dry-run or after --), before preflight, builds, binaries or writes:
+gentle-cc: agent selection is managed by the wrapper; not allowed for sync, install, or sync-all
 Exit status 1; stdout is empty. doctor/build/top-level help are unchanged.
 Embedded values like --preset=--agent=pi pass through; standalone selector tokens
-are rejected even as apparent option values. External parser forms are unverified.
+are rejected even as apparent option values. Pinned companion aliases accumulate.
 
 Mutating install/sync/sync-all require Python 3 fcntl.flock (Linux/macOS).
 The persistent OS lock file must never be removed, even when idle.
 Legacy lock directories fail closed; no automatic recovery is performed.
-Help (-h/--help) or effective --dry-run=true skips cleanup and locking.
-Repeated --dry-run flags: last value wins (Go boolean spellings; bare = true).
-Effective --dry-run=false still mutates. Do not run direct binaries concurrently.
+Companion help (--help/-help/-h/--h) anywhere skips cleanup and locking.
+sync-all only skips for unambiguous --help/-h; its official parser is unverified.
+Pure -dry-run/--dry-run sequences: last value wins (Go booleans; bare = true).
+False, boundaries, unknown options or possible values use preflight/lock/cleanup.
+Straightforward help/dry-run stays read-only. Do not run direct binaries concurrently.
 See README for shared-state limitations and stale-lock recovery.
 
 Env:
