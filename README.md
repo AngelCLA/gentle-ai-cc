@@ -9,38 +9,38 @@ real end-to-end Linux validation remains pending.
 > `NOT_PLANNED`), #4105 and #5790 were closed under the policy *"we're not
 > accepting new agents for now."* This is a community workaround.
 
-## Native wrapper transition (development, not a published release)
+## Native wrapper (published in `4.3.1-cc.2`)
 
-This checkout builds a standalone Go wrapper: running downloaded native binaries
-requires **neither Python nor Bash nor Go**. Installers still need Bash or
-PowerShell; source builds need Go. The companion remains a separate executable.
-The older `4.3.1-cc.1` release used a universal Bash wrapper, **not** the native
-asset format described here. Defaults still name that legacy version; do not
-interpret them as an available native release. No new release version or
-publication is established by this change.
+This distribution ships a standalone Go wrapper: running downloaded native
+binaries requires **neither Python nor Bash nor Go**. Installers still need Bash
+or PowerShell; source builds need Go. The companion remains a separate executable.
 
-Use a source build below, or locally package an explicitly chosen development
-version and install its matching assets. For the old release, `--no-wrapper`
-remains the explicit companion-only path; an existing legacy wrapper is not
-upgraded by that option. Native pair installation against old release assets
-fails without replacing either executable.
+`4.3.1-cc.2` is the current native release and the default version in both
+installers. The older `4.3.1-cc.1` release used a universal Bash wrapper, **not**
+the native asset format described here; `--no-wrapper` remains the explicit
+companion-only path for it and does not upgrade an existing legacy wrapper.
 
-## Release install (only after matching native assets are prepared)
+The `4.3.1-cc.2` companion binaries are byte-identical to `4.3.1-cc.1` because the
+companion ref did not change, so the companion still reports `4.3.1-cc.1` from
+`version`; only the wrapper is a new native build.
 
-This repository is **private**, so use an authenticated clone (not the anonymous
-`curl` form). Replace `<native-version>` with an actually prepared native version;
-the following is **not** a successful path to the old default release:
+## Release install
+
+This repository publishes **public** release assets, so the default install needs
+no authentication and no `gh`:
 
 ```bash
 git clone https://github.com/AngelCLA/gentle-ai-cc.git
 cd gentle-ai-cc
-GENTLE_CC_VERSION=<native-version> ./install.sh
+./install.sh
 ```
 
-`install.sh` first honors an explicit `GENTLE_CC_SOURCE` override (source build).
-Otherwise it selects local artifacts when `dist/checksums.txt` exists, or downloads
-the release with authenticated `gh`. There is **no automatic source fallback**;
-a selected incomplete or invalid local release fails rather than downloading.
+Use `GENTLE_CC_VERSION=<tag> ./install.sh` to install a different release. The
+installer first honors an explicit `GENTLE_CC_SOURCE` override (source build).
+Otherwise it selects local artifacts when `dist/checksums.txt` exists, then an
+authenticated `gh` when it is installed and authenticated, and finally the public
+HTTPS release URL. There is **no automatic source fallback**; a selected
+incomplete or invalid local release fails rather than downloading.
 Release mode installs the companion binary for your OS/arch **and** the
 `gentle-cc` wrapper, verifying both against `checksums.txt`, to `~/.local/bin`.
 Checksums establish consistency with the manifest, not publisher authenticity.
@@ -58,7 +58,7 @@ gentle-cc install --preset full-gentleman   # first time
 gentle-cc sync                              # subsequent
 ```
 
-Pin the prepared native release with `GENTLE_CC_VERSION=<native-version>`.
+`GENTLE_CC_VERSION` pins another release; the default is `4.3.1-cc.2`.
 `GENTLE_CC_DEST` changes the install directory, not the wrapper's binary lookup:
 for a custom directory, add it to `PATH` and set `GENTLE_CC_BIN` to the installed
 companion's full path.
@@ -69,12 +69,12 @@ companion's full path.
   requires no interpreter; mutating calls need a filesystem with working OS locks.
 - Release installation: `curl` (including the local `file://` path), `sha256sum`
   or `shasum -a 256`, and trusted release artifacts/manifest.
-- Private quick path: Git for the authenticated clone; authenticated `gh` only
-  when no local release is selected. Low-level URL mode does not use `gh`.
+- Release download: Git for the clone. `gh` is optional: when it is installed and
+  authenticated it is used first, otherwise the public HTTPS release URL is used.
 - Source builds and release packaging: Git and a compatible Go toolchain with
   required module dependencies available. The pinned source currently requires
   Go 1.25.10 or newer; other refs may differ. Release users do not need Go.
-- Windows: PowerShell and `Get-FileHash`; `gh` authenticated for remote releases.
+- Windows: PowerShell and `Get-FileHash`; `gh` is optional for public releases.
   Installs both native `.exe` files together in the destination shown below.
 
 ## What this is
@@ -90,7 +90,7 @@ the shared `state.json` compatible with the official binary.
 | `cmd/gentle-cc/` | Native wrapper entry point: runs the companion only for `command-code`, cleans shared state. |
 | `gentle-cc-release.sh` | Packages checked-out source for six targets + wrapper + `checksums.txt`. |
 | `gentle-cc-install.sh` | Verifies release checksums before installation **or** builds from a source ref. |
-| `install.sh` | POSIX convenience installer (clone-based; private-repo safe). |
+| `install.sh` | POSIX convenience installer (clone-based; public release or local `dist/`). |
 | `install.ps1` | Windows installer (PowerShell; isolated native installer fixtures, not real companion E2E). |
 
 ## Platform support
@@ -104,16 +104,17 @@ been published:
 | macOS amd64 / arm64 | `install.sh` / native Go wrapper | Cross-compilation only; Unix runtime not certified. |
 | Windows amd64 / arm64 | `install.ps1` / native Go wrapper | Isolated native amd64 CLI and PowerShell fixtures; real companion E2E and arm64 runtime unverified. |
 
-On **Windows**, use `install.ps1` with a prepared native release or complete local
+On **Windows**, run `install.ps1`; it uses a prepared native release or local
 `dist/`. The wrapper locates the companion as a sibling `gentle-ai-cc.exe`:
 
 ```powershell
-$env:GENTLE_CC_VERSION = "<native-version>" # must actually exist, not 4.3.1-cc.1
 $env:GENTLE_CC_DEST = Join-Path $env:LOCALAPPDATA "gentle-cc"
 pwsh -NoProfile -File .\install.ps1
 & (Join-Path $env:GENTLE_CC_DEST "gentle-cc.exe") install --preset full-gentleman
 & (Join-Path $env:GENTLE_CC_DEST "gentle-cc.exe") sync
 ```
+
+Set `GENTLE_CC_VERSION` only to install a different release tag.
 
 No `PATH` configuration or runtime interpreter is needed for these absolute
 paths. `GENTLE_CC_BIN` still overrides companion lookup. Native Windows symlink
@@ -122,11 +123,12 @@ has not been certified. Direct binary writes bypass cleanup and wrapper locking;
 do not run them concurrently with the wrapper or each other.
 
 `install.ps1` uses local `dist/` only when **both** requested native version/platform
-assets and both checksum entries are present. Otherwise it downloads via `gh` into
-fresh temporary staging, never using `dist/` as a download cache. A native `gh`
-failure or checksum mismatch aborts installation; owned staging is cleaned on
-success and failure. A complete but corrupt local release fails checksum
-verification rather than silently falling back to a download.
+assets and both checksum entries are present. Otherwise it downloads into fresh
+temporary staging, never using `dist/` as a download cache: authenticated `gh`
+when available, otherwise the public HTTPS release URL. A download failure or
+checksum mismatch aborts installation; owned staging is cleaned on success and
+failure. A complete but corrupt local release fails checksum verification rather
+than silently falling back to a download.
 The PowerShell installer rejects an existing directory or reparse point at
 either `gentle-ai-cc.exe` or `gentle-cc.exe`, and rejects a linked/non-directory
 destination directory before writes. It stages both files and backups before
@@ -174,20 +176,26 @@ Data the companion writes (same shape as any managed agent):
 
 ### A. Prebuilt release (no Go)
 
-For this private repository, prefer the authenticated clone + `./install.sh`
-quick path above. The low-level installer uses **unauthenticated `curl`**, not
-GitHub CLI credentials. Use it only with an accessible endpoint or trusted local
-release directory, for example:
+For the public release, the clone + `./install.sh` quick path above is enough;
+`gh` is optional. The low-level installer uses **unauthenticated `curl`**, which
+works for public assets and trusted local directories. Example:
 
 ```bash
-./gentle-cc-install.sh --from-release file:///absolute/path/to/release --version <native-version>
+./gentle-cc-install.sh --from-release file:///absolute/path/to/release --version <version>
+```
+
+or directly against the public release:
+
+```bash
+./gentle-cc-install.sh --from-release \
+  https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.2 --version 4.3.1-cc.2
 ```
 
 The directory must contain `checksums.txt`, the matching platform/version binary,
 and `gentle-cc_<version>_<os>_<arch>[.exe]` (unless `--no-wrapper`).
 Companion assets remain `gentle-ai-cc_<version>_<os>_<arch>[.exe]`.
-The installed names are `gentle-ai-cc` and `gentle-cc` (both `.exe` on Windows). A private GitHub release URL does not
-become accessible just because `gh` is authenticated.
+The installed names are `gentle-ai-cc` and `gentle-cc` (both `.exe` on Windows).
+A private mirror still requires an accessible endpoint; the public release does not.
 
 ### B. Build from source at a pinned commit (needs Go)
 
@@ -232,7 +240,7 @@ use the publication recovery described below.
 
 `--ref` selects the source commit/tag (default
 `768e6b213c795f574ee837e3a6ce9b4274ee6280`). `--version` selects the release asset
-version or injected source build version (default `4.3.1-cc.1`); it does not
+version or injected source build version (default `4.3.1-cc.2`); it does not
 select a source ref. See `./gentle-cc-install.sh --help` for options.
 
 Both install `~/.local/bin/gentle-ai-cc` and, unless `--no-wrapper`,
@@ -399,7 +407,7 @@ not established here.
 2. Build artifacts (binaries + wrapper + manifest):
 
    ```bash
-   ./gentle-cc-release.sh --repo ~/dev/gentle-ai --version <native-version> --out dist
+   ./gentle-cc-release.sh --repo ~/dev/gentle-ai --version <version> --out dist
    ```
 
    The script builds both modules with the same reproducibility flags for
@@ -408,15 +416,18 @@ not established here.
    (exit 2); it cannot represent six architecture-specific executables. No Bash
    wrapper is copied into native release output. Always choose a new version;
    do not replace the legacy `4.3.1-cc.1` release with incompatible assets.
+   When the companion ref did not change, the previously verified companion
+   binaries may be reused under the new version names instead of being rebuilt;
+   recompute `checksums.txt` and state the provenance in the release notes.
 
-3. Only after a separate version/publication decision, publish under that tag:
+3. Publish under that tag:
 
    ```bash
-   gh release create <native-version> dist/* --title <native-version> --notes "Native Command Code distribution"
+   gh release create <version> dist/* --title <version> --notes "Native Command Code distribution"
    ```
 
-4. Share the authenticated clone + `./install.sh` instructions for this private
-   repository; share a low-level URL only when recipients can access it via curl.
+4. Share the clone + `./install.sh` instructions. The release assets are public;
+   an explicit `GENTLE_CC_VERSION` installs a different tag.
 5. On each new upstream release: update the external adapter checkout, bump
    `--version`, verify, rebuild and publish only when separately authorized;
    update the pinned `--ref`/tag in distribution instructions.
@@ -533,10 +544,10 @@ verify compatibility with a real `sync`.
 | `GENTLE_AI_BIN` | `gentle-ai` | Official binary used by `sync-all`. |
 | `GENTLE_AI_HOME` | Unset | Custom state home unsupported by wrapper mutations; any nonempty value is rejected. |
 | `GENTLE_CC_DEST` | Bash: `~/.local/bin`; PowerShell: `$env:LOCALAPPDATA\gentle-cc` | Installer destination; does not change wrapper lookup or `PATH`. |
-| `GENTLE_CC_VERSION` | `4.3.1-cc.1` | Release tag / build version passed by `install.sh`; release tag in PowerShell. |
+| `GENTLE_CC_VERSION` | `4.3.1-cc.2` | Release tag / build version passed by `install.sh`; release tag in PowerShell. |
 | `GENTLE_CC_SOURCE` | Unset | `install.sh` source Git URL; explicit override before local/remote releases. |
 | `GENTLE_CC_REF` | Pinned commit above | Source ref used by `install.sh` with `GENTLE_CC_SOURCE`; ignored for releases. |
-| `GENTLE_CC_OWNER_REPO` | `AngelCLA/gentle-ai-cc` | GitHub repository for authenticated release downloads in `install.sh` / `install.ps1`. |
+| `GENTLE_CC_OWNER_REPO` | `AngelCLA/gentle-ai-cc` | GitHub repository for release downloads in `install.sh` / `install.ps1`. |
 
 ## Limitations
 
@@ -560,9 +571,10 @@ verify compatibility with a real `sync`.
   `gentle-cc` for Command Code.
 - Official `sync` fails `not supported in MVP`: run any `gentle-cc sync`/`install`
   (it cleans state) or edit `~/.gentle-ai/state.json` manually.
-- `python3 required for shared-state cleanup`: you are running the legacy wrapper,
-  not `./cmd/gentle-cc`'s native executable. Use a source-built native pair or a
-  separately prepared native release; the old default release is incompatible.
+- `python3 required for shared-state cleanup`: you are running the legacy
+  `4.3.1-cc.1` wrapper, not the native executable. Install `4.3.1-cc.2` or a
+  source-built native pair; `--no-wrapper` installs only the companion for the
+  legacy release.
 - `cannot clean shared state`: inspect and repair `~/.gentle-ai/state.json`;
   invalid existing state is rejected before either mutating binary runs.
 - `shared state busy (gentle-cc.lock)`: wait for the active operation (it may

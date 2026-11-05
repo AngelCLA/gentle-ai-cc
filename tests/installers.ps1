@@ -1,5 +1,6 @@
 # Run with: pwsh -NoProfile -File tests/installers.ps1 (or Windows PowerShell).
-# Fake gh and byte fixtures only; never downloads or executes a companion.
+# Fake gh/Invoke-WebRequest and byte fixtures only; never downloads or executes a
+# companion.
 $ErrorActionPreference = "Stop"
 $source = Join-Path (Split-Path -Parent $PSScriptRoot) "install.ps1"
 $root = Join-Path ([IO.Path]::GetTempPath()) ("gentle-cc-test-" + [guid]::NewGuid().ToString("N"))
@@ -124,6 +125,45 @@ try {
     Write-Host "PASS: $case"
   }
   Assert (($global:DownloadDirs | Select-Object -Unique).Count -eq $global:DownloadDirs.Count) "fresh staging for each download/version"
+  # Public HTTPS fallback when gh is unavailable: no authentication is needed.
+  foreach ($httpMode in @("ok", "missing")) {
+    $fixture = Join-Path $root "public-$httpMode"
+    New-Item -ItemType Directory -Path $fixture | Out-Null
+    Copy-Item -LiteralPath $source -Destination (Join-Path $fixture "install.ps1")
+    $env:GENTLE_CC_VERSION = "v9"
+    $env:GENTLE_CC_DEST = Join-Path $fixture "dest"
+    New-Item -ItemType Directory -Path $env:GENTLE_CC_DEST | Out-Null
+    [IO.File]::WriteAllText((Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe"), "old binary")
+    [IO.File]::WriteAllText((Join-Path $env:GENTLE_CC_DEST "gentle-cc.exe"), "old wrapper")
+    $global:ReleaseDir = Join-Path $fixture "release"
+    Write-Release $global:ReleaseDir $env:GENTLE_CC_VERSION "public-$httpMode"
+    $global:HttpMode = $httpMode
+    $global:HttpDirs = @()
+    if (Test-Path Function:\gh) { Remove-Item Function:\gh }
+    function global:Invoke-WebRequest {
+      [CmdletBinding()]
+      param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)
+      $name = ($Uri -split '/')[-1]
+      if ($global:HttpMode -eq "missing" -and $name -eq "checksums.txt") { throw "404 Not Found" }
+      $global:HttpDirs += (Split-Path -Parent $OutFile)
+      Copy-Item -LiteralPath (Join-Path $global:ReleaseDir $name) -Destination $OutFile
+    }
+    $failure = $null
+    $output = @()
+    try { $output = @(& (Join-Path $fixture "install.ps1") 6>&1) } catch { $failure = $_.Exception.Message }
+    if ($httpMode -eq "missing") {
+      Assert ($failure -eq "download failed for checksums.txt: 404 Not Found") "public download failure: $failure"
+      Assert (([IO.File]::ReadAllText((Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe"))) -eq "old binary") "public failure preserves binary"
+    } else {
+      Assert ($null -eq $failure) "public success: $failure"
+      Assert (([IO.File]::ReadAllText((Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe"))) -eq "public-ok") "public binary bytes"
+      Assert (([IO.File]::ReadAllText((Join-Path $env:GENTLE_CC_DEST "gentle-cc.exe"))) -eq "wrapper-public-ok") "public wrapper bytes"
+      Assert (($output -join "`n").Contains("downloading release v9 from https://github.com/fixture/repo/releases/download/v9 ...")) "public download announcement"
+    }
+    foreach ($directory in $global:HttpDirs) { Assert (-not (Test-Path -LiteralPath $directory)) "public staging cleaned" }
+    Write-Host "PASS: public-$httpMode"
+  }
+  if (Test-Path Function:\Invoke-WebRequest) { Remove-Item Function:\Invoke-WebRequest }
   # Public publication failures: snapshots happen before writes; second rename
   # failure restores the first artifact, including an initially absent artifact.
   function global:Copy-Item {
@@ -247,7 +287,7 @@ try {
   Write-Host "PASS: native guidance and shared-state warnings"
 } finally {
   foreach ($name in $envNames) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
-  Remove-Item Function:\gh
+  if (Test-Path Function:\gh) { Remove-Item Function:\gh }
   if (Test-Path Function:\Copy-Item) { Remove-Item Function:\Copy-Item }
   if (Test-Path Function:\Move-Item) { Remove-Item Function:\Move-Item }
   if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }

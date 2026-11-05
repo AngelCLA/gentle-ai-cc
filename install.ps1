@@ -1,23 +1,24 @@
 # install.ps1 — Windows installer for the Command Code companion of gentle-ai.
 #
-# Private repository: anonymous download does not work. This script prefers:
+# Public release assets: this script prefers:
 #   1. a complete local native pair in .\dist (from gentle-cc-release.sh)
-#   2. an authenticated release download via `gh`
+#   2. an authenticated release download via `gh` when it is available
+#   3. the public HTTPS release URL, which needs no `gh`
 #
 # Usage (from a clone):
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
 #
 # Env:
-#   GENTLE_CC_VERSION     release tag (default 4.3.1-cc.1)
+#   GENTLE_CC_VERSION     release tag (default 4.3.1-cc.2)
 #   GENTLE_CC_DEST        install dir  (default $env:LOCALAPPDATA\gentle-cc)
 #   GENTLE_CC_OWNER_REPO  owner/repo   (default AngelCLA/gentle-ai-cc)
-# Native assets need a prepared native GENTLE_CC_VERSION; 4.3.1-cc.1 is legacy,
-# not a published native pair. Runtime needs no Bash/Python; packaging needs Go.
+# 4.3.1-cc.2 is the native release; 4.3.1-cc.1 is the legacy wrapper.
+# Runtime needs no Bash/Python; packaging needs Go.
 # Controlled publication failures roll back changed files, not a crash-safe or
 # pair-atomic transaction. Use an exclusively controlled destination.
 $ErrorActionPreference = "Stop"
 
-$Version   = if ($env:GENTLE_CC_VERSION)    { $env:GENTLE_CC_VERSION }    else { "4.3.1-cc.1" }
+$Version   = if ($env:GENTLE_CC_VERSION)    { $env:GENTLE_CC_VERSION }    else { "4.3.1-cc.2" }
 $OwnerRepo = if ($env:GENTLE_CC_OWNER_REPO) { $env:GENTLE_CC_OWNER_REPO } else { "AngelCLA/gentle-ai-cc" }
 $Dest      = if ($env:GENTLE_CC_DEST)       { $env:GENTLE_CC_DEST }       else { Join-Path $env:LOCALAPPDATA "gentle-cc" }
 
@@ -60,17 +61,26 @@ try {
         (Get-ExpectedChecksum $distDir $name))) { $complete = $false }
   }
   if (-not $complete) {
-    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-      throw "no complete local dist\ and no 'gh' on PATH. Run gentle-cc-release.sh first, or install gh and authenticate."
-    }
     # Downloads never populate or reuse the checkout's dist directory.
     $downloadDir = Join-Path ([IO.Path]::GetTempPath()) ("gentle-cc-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $downloadDir | Out-Null
     $ownedTemp = $downloadDir
     $distDir = $downloadDir
-    Write-Host "downloading release $Version from $OwnerRepo via gh ..."
-    gh release download $Version -R $OwnerRepo -D $distDir
-    if ($LASTEXITCODE -ne 0) { throw "gh release download failed (exit $LASTEXITCODE)" }
+    if (Get-Command gh -ErrorAction SilentlyContinue) {
+      Write-Host "downloading release $Version from $OwnerRepo via gh ..."
+      gh release download $Version -R $OwnerRepo -D $distDir
+      if ($LASTEXITCODE -ne 0) { throw "gh release download failed (exit $LASTEXITCODE)" }
+    } else {
+      $base = "https://github.com/$OwnerRepo/releases/download/$Version"
+      Write-Host "downloading release $Version from $base ..."
+      foreach ($name in @($artifacts.Values) + "checksums.txt") {
+        try {
+          Invoke-WebRequest -Uri "$base/$name" -OutFile (Join-Path $distDir $name) -UseBasicParsing -ErrorAction Stop
+        } catch {
+          throw "download failed for ${name}: $($_.Exception.Message)"
+        }
+      }
+    }
   }
 
   # Validate every requested artifact before any destination write.
