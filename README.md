@@ -71,8 +71,14 @@ The `gentle-cc` wrapper is a **bash** script (it does the `state.json` cleanup
 after each operation). On Windows you can run it under **Git Bash** or **WSL**;
 without either, call the companion directly and note that the wrapper's
 post-run state cleanup will not happen (see "The shared-state detail").
+`install.ps1` uses local `dist/` only when both the requested version/platform
+asset and its checksum entry are present. Otherwise it downloads via `gh` into
+fresh temporary staging, never using `dist/` as a download cache. A native `gh`
+failure or checksum mismatch aborts installation; owned staging is cleaned on
+success and failure. A complete but corrupt local release fails checksum
+verification rather than silently falling back to a download.
 `install.ps1` was not executed in this environment (no PowerShell available);
-review it before relying on it.
+run the fixture checks below before relying on it.
 
 ## Do I need the gentle-ai repo or the official binary?
 
@@ -126,7 +132,15 @@ gentle-cc-install.sh --from-source https://github.com/<you>/gentle-ai.git --ref 
 ```
 
 Both install `~/.local/bin/gentle-ai-cc` and, unless `--no-wrapper`,
-`~/.local/bin/gentle-cc`.
+`~/.local/bin/gentle-cc`. For releases, all requested artifacts are staged and
+verified against `checksums.txt` **before either destination is replaced**. A
+missing download or failed verification leaves existing binary/wrapper bytes
+and modes unchanged. `--no-wrapper` does not download or verify the wrapper;
+`--sha-only` still installs, but suppresses the final next-step guidance.
+This is verification-before-write, not transactional rollback: a later copy,
+permission, or disk-write failure can still leave a partial installation.
+Authenticated `install.sh` downloads clean their staging on both child success
+and failure, preserving the child's exit status.
 
 ## Commands
 
@@ -148,6 +162,27 @@ gentle-cc sync-all[args]    # official sync for other agents + Command Code
   not match `checksums.txt` (verified against a tampered manifest).
 - Pin the commit (`--ref`) or the release tag in shared instructions so
   everyone gets the same bytes.
+
+## Installer regression checks
+
+Run isolated fixture tests (no real releases, Go builds, or installs into your
+home directory):
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
+bash -n gentle-cc-install.sh install.sh
+```
+
+The Python suite runs `tests/installers.ps1` when `pwsh` or `powershell` is on
+`PATH`, and reports a skip otherwise. You can also run it directly:
+
+```powershell
+pwsh -NoProfile -File tests/installers.ps1
+```
+
+The PowerShell fixtures use fake `gh` downloads and temporary destinations to
+check local/version selection, checksum and native-command failures, unchanged
+local artifacts, and staging cleanup.
 
 ## Publishing a release (for the maintainer)
 

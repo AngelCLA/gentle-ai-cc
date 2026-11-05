@@ -42,8 +42,10 @@ if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     echo "release $VERSION not found; build from source with GENTLE_CC_SOURCE=<git-url>" >&2
     exit 1
   }
-  exec "$here/gentle-cc-install.sh" --from-release "file://$tmp" \
-    --version "$VERSION" "$@"
+  status=0
+  "$here/gentle-cc-install.sh" --from-release "file://$tmp" \
+    --version "$VERSION" "$@" || status=$?
+  exit "$status"  # Run the parent's EXIT cleanup on child success or failure.
 fi
 
 echo "no local dist/ and no authenticated gh; set GENTLE_CC_SOURCE=<git-url> to build from source" >&2

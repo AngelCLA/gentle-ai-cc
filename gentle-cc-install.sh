@@ -84,13 +84,18 @@ install_release() {
   echo "downloading $asset ..."
   curl -fsSL "$base/$asset" -o "$tmp/$asset" || die "download failed: $base/$asset"
   verify_against "$tmp/$asset" "$asset" "$tmp/checksums.txt"
-  cp "$tmp/$asset" "$DEST_DIR/$BIN_NAME"
-  chmod +x "$DEST_DIR/$BIN_NAME"
 
   if [ "$NO_WRAPPER" = "0" ]; then
     echo "downloading gentle-cc wrapper ..."
     curl -fsSL "$base/gentle-cc" -o "$tmp/gentle-cc" || die "wrapper download failed"
     verify_against "$tmp/gentle-cc" "gentle-cc" "$tmp/checksums.txt"
+  fi
+
+  # Verify every requested artifact before replacing either destination.
+  # Copy/chmod failures are still possible; this is not a rollback transaction.
+  cp "$tmp/$asset" "$DEST_DIR/$BIN_NAME"
+  chmod +x "$DEST_DIR/$BIN_NAME"
+  if [ "$NO_WRAPPER" = "0" ]; then
     cp "$tmp/gentle-cc" "$WRAPPER"
     chmod +x "$WRAPPER"
   fi
