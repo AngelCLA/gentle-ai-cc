@@ -9,6 +9,7 @@ on:
     paths:
       - '.github/workflows/companion-e2e.yml'
       - 'tests/companion-e2e.ps1'
+      - 'gentle-cc-install.sh'
 
 permissions:
   contents: read
