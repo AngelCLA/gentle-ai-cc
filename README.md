@@ -127,6 +127,16 @@ of gentle-ai that contains the Command Code adapter (a fork/branch with
 `internal/agents/commandcode/`). It does **not** work against this distribution
 repo, which contains scripts only.
 
+The wrapper comes from **this distribution**, beside `gentle-cc-install.sh`,
+not from the external gentle-ai module. Keep the installer and `gentle-cc` from
+this distribution together so their versions remain coherent. Source mode checks
+and stages that wrapper before creating or changing the destination and before
+cloning or building. If it is unavailable, installation fails without replacing
+an existing binary or wrapper; it never silently keeps an old wrapper or reports
+success with a missing one. Use `--no-wrapper` to explicitly install only the
+binary without needing the distribution wrapper (any existing wrapper is left
+unchanged). Later copy/permission failures are not rolled back.
+
 ```bash
 gentle-cc-install.sh --from-source https://github.com/<you>/gentle-ai.git --ref <pinned-commit>
 ```

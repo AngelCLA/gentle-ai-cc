@@ -12,7 +12,9 @@
 #
 #   --from-source GIT_URL [--ref REF]
 #       Clone/checkout GIT_URL at REF (default the pinned commit) and build the
-#       companion reproducibly. Requires Go 1.25+.
+#       companion reproducibly. Requires Go 1.25+. The wrapper is staged from
+#       beside this installer before changing the destination, not from GIT_URL.
+#       A missing wrapper is an error unless --no-wrapper is given.
 #
 # Both modes install:
 #   ~/.local/bin/gentle-ai-cc     (companion binary)
@@ -35,7 +37,7 @@ while [ $# -gt 0 ]; do
     --version) VERSION="$2"; shift 2 ;;
     --sha-only) SHA_ONLY=1; shift ;;
     --no-wrapper) NO_WRAPPER=1; shift ;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -57,10 +59,20 @@ esac
 ext=""; [ "$os" = "windows" ] && ext=".exe"
 asset="gentle-ai-cc_${VERSION}_${os}_${arch}${ext}"
 
-mkdir -p "$DEST_DIR"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
+if [ "$MODE" = "source" ] && [ "$NO_WRAPPER" = "0" ]; then
+  # Resolve relative to this distribution, never the caller's working directory
+  # or the external module. Stage before clone/build or any destination changes.
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  source_wrapper="$script_dir/gentle-cc"
+  [ -f "$source_wrapper" ] && [ -r "$source_wrapper" ] || \
+    die "source wrapper unavailable: $source_wrapper"
+  cp "$source_wrapper" "$tmp/gentle-cc" || die "cannot stage source wrapper: $source_wrapper"
+fi
+
+mkdir -p "$DEST_DIR"
 echo "platform: ${os}/${arch}  asset: ${asset}"
 
 sha256_of() {
@@ -116,8 +128,9 @@ install_source() {
   chmod +x "$DEST_DIR/$BIN_NAME"
   echo "built SHA256: $(sha256_of "$DEST_DIR/$BIN_NAME")"
 
-  if [ "$NO_WRAPPER" = "0" ] && [ -f "$tmp/src/gentle-cc" ]; then
-    cp "$tmp/src/gentle-cc" "$WRAPPER"; chmod +x "$WRAPPER"
+  if [ "$NO_WRAPPER" = "0" ]; then
+    cp "$tmp/gentle-cc" "$WRAPPER"
+    chmod +x "$WRAPPER"
   fi
 }
 

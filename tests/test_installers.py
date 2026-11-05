@@ -115,6 +115,144 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.snapshot()["gentle-cc"], self.before["gentle-cc"])
         self.assertEqual(list(self.stage.iterdir()), [])
 
+    def source_fixture(self, *, wrapper=True, external_wrapper=False):
+        distribution = self.root / "distribution with spaces"
+        distribution.mkdir()
+        installer = distribution / "gentle-cc-install.sh"
+        shutil.copy2(ROOT / "gentle-cc-install.sh", installer)
+        if wrapper:
+            shutil.copy2(ROOT / "gentle-cc", distribution / "gentle-cc")
+        checkout = self.root / "external module with spaces"
+        checkout.mkdir()
+        if external_wrapper:
+            (checkout / "gentle-cc").write_bytes(b"unrelated external wrapper\n")
+        fakebin = self.root / "fake tools"
+        fakebin.mkdir()
+        tools = {
+            "git": '''#!/bin/bash
+printf 'git %s\n' "$1" >> "$TOOL_LOG"
+case "$1" in
+  clone)
+    mkdir -p "$4"
+    if [ -f "$FIXTURE_SOURCE/gentle-cc" ]; then
+      cp "$FIXTURE_SOURCE/gentle-cc" "$4/gentle-cc"
+    fi
+    if [ "${CHANGE_DISTRIBUTION:-0}" = 1 ]; then
+      printf 'changed during clone\n' > "$FIXTURE_DISTRIBUTION/gentle-cc"
+    fi
+    ;;
+  checkout) ;;
+  *) exit 90 ;;
+esac
+''',
+            "go": '''#!/bin/bash
+printf 'go %s\n' "$1" >> "$TOOL_LOG"
+[ "$1" = build ] || exit 91
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = -o ]; then
+    printf 'new binary\n' > "$2"
+    exit 0
+  fi
+  shift
+done
+exit 92
+''',
+        }
+        for name, script in tools.items():
+            path = fakebin / name
+            path.write_text(script)
+            path.chmod(0o755)
+        self.tool_log = self.root / "tool log"
+        self.env.update(PATH=str(fakebin) + os.pathsep + os.environ["PATH"],
+                        TOOL_LOG=str(self.tool_log), FIXTURE_SOURCE=str(checkout),
+                        FIXTURE_DISTRIBUTION=str(distribution))
+        return installer, checkout
+
+    def run_source(self, installer, checkout, *args):
+        # Invoke from outside the distribution so sibling lookup cannot use cwd.
+        return subprocess.run(["bash", str(installer), "--from-source", str(checkout),
+                               "--ref", "fixture-ref", *args], cwd=self.home,
+                              env=self.env, capture_output=True, text=True, timeout=10)
+
+    def source_stdout(self, checkout, *, guidance=True):
+        output = (f"platform: {platform.system().lower()}/{self.asset.split('_')[-1]}  "
+                  f"asset: {self.asset}\n"
+                  f"cloning {checkout} ...\n"
+                  "building at fixture-ref (reproducible) ...\n"
+                  f"built SHA256: {hashlib.sha256(self.binary).hexdigest()}\n"
+                  f"installed: {self.dest}/gentle-ai-cc\n")
+        if guidance:
+            output += (f"\nnext:\n  {self.dest}/gentle-ai-cc version\n"
+                       f"  {self.dest}/gentle-cc install --preset full-gentleman"
+                       f"   # or: {self.dest}/gentle-cc sync\n")
+        return output
+
+    def test_source_installs_distribution_wrapper_not_external_module_wrapper(self):
+        installer, checkout = self.source_fixture(external_wrapper=True)
+        expected_wrapper = (installer.parent / "gentle-cc").read_bytes()
+        # The distribution artifact must already be staged when cloning starts.
+        self.env["CHANGE_DISTRIBUTION"] = "1"
+        result = self.run_source(installer, checkout)
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(result.stdout, self.source_stdout(checkout))
+        self.assertEqual(result.stderr, "")
+        self.assertEqual((self.dest / "gentle-ai-cc").read_bytes(), self.binary)
+        self.assertEqual((self.dest / "gentle-cc").read_bytes(), expected_wrapper)
+        for name in ("gentle-ai-cc", "gentle-cc"):
+            self.assertTrue((self.dest / name).stat().st_mode & stat.S_IXUSR)
+        self.assertEqual(self.tool_log.read_text(), "git clone\ngit checkout\ngo build\n")
+        self.assertEqual(list(self.stage.iterdir()), [])
+
+    def test_source_without_external_wrapper_installs_distribution_wrapper(self):
+        installer, checkout = self.source_fixture()
+        (self.dest / "gentle-cc").unlink()
+        result = self.run_source(installer, checkout)
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(result.stdout, self.source_stdout(checkout))
+        self.assertEqual(result.stderr, "")
+        self.assertEqual((self.dest / "gentle-ai-cc").read_bytes(), self.binary)
+        self.assertEqual((self.dest / "gentle-cc").read_bytes(),
+                         (installer.parent / "gentle-cc").read_bytes())
+        self.assertTrue((self.dest / "gentle-cc").stat().st_mode & stat.S_IXUSR)
+        self.assertEqual(list(self.stage.iterdir()), [])
+
+    def test_source_missing_distribution_wrapper_fails_without_destination_changes(self):
+        installer, checkout = self.source_fixture(wrapper=False, external_wrapper=True)
+        for existing_destination in (True, False):
+            with self.subTest(existing_destination=existing_destination):
+                if not existing_destination:
+                    self.dest = self.root / "not created destination"
+                    self.env["GENTLE_CC_DEST"] = str(self.dest)
+                result = self.run_source(installer, checkout)
+                self.assertEqual(result.returncode, 1, result)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(result.stderr,
+                                 f"install: source wrapper unavailable: {installer.parent}/gentle-cc\n")
+                if existing_destination:
+                    self.assertEqual(self.snapshot(), self.before)
+                else:
+                    self.assertFalse(self.dest.exists())
+                self.assertFalse(self.tool_log.exists())
+                self.assertEqual(list(self.stage.iterdir()), [])
+
+    def test_source_no_wrapper_works_without_distribution_wrapper(self):
+        installer, checkout = self.source_fixture(wrapper=False, external_wrapper=True)
+        for existing_wrapper in (True, False):
+            with self.subTest(existing_wrapper=existing_wrapper):
+                if not existing_wrapper:
+                    (self.dest / "gentle-cc").unlink()
+                result = self.run_source(installer, checkout, "--no-wrapper", "--sha-only")
+                self.assertEqual(result.returncode, 0, result)
+                self.assertEqual(result.stdout, self.source_stdout(checkout, guidance=False))
+                self.assertEqual(result.stderr, "")
+                self.assertEqual((self.dest / "gentle-ai-cc").read_bytes(), self.binary)
+                self.assertTrue((self.dest / "gentle-ai-cc").stat().st_mode & stat.S_IXUSR)
+                if existing_wrapper:
+                    self.assertEqual(self.snapshot()["gentle-cc"], self.before["gentle-cc"])
+                else:
+                    self.assertFalse((self.dest / "gentle-cc").exists())
+                self.assertEqual(list(self.stage.iterdir()), [])
+
     def test_authenticated_child_status_output_and_cleanup(self):
         checkout = self.root / "checkout"
         checkout.mkdir()
