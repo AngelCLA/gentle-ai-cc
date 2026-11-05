@@ -57,7 +57,9 @@ the shared `state.json` compatible with the official binary.
 
 On **Linux/macOS** the full flow (`install.sh` → `gentle-cc install/sync`) works
 as documented. Mutating wrapper commands also require **Python 3** on `PATH`
-(for shared-state validation and atomic cleanup); release users do not need Go.
+with `fcntl.flock` (for OS locking, shared-state validation and atomic cleanup);
+release users do not need Go. Linux fixture tests exercise the lock; macOS uses
+the same POSIX API but has not been runtime-verified in this environment.
 
 On **Windows**, use `install.ps1` to install the companion binary, then call the
 binary directly:
@@ -68,8 +70,11 @@ gentle-ai-cc.exe sync --agent command-code
 ```
 
 The `gentle-cc` wrapper is a **bash** script (it does the `state.json` cleanup
-after each operation). On Windows you can run it under **Git Bash** or **WSL**;
-without either, call the companion directly and note that the wrapper's
+after each operation). **Git Bash is not a supported mutating wrapper runtime**:
+native Windows Python generally lacks `fcntl.flock`. Missing or unusable OS locking
+fails closed, before either mutating binary runs; there is no mkdir fallback.
+WSL with Linux Bash/Python uses the Linux locking path (not runtime-verified here).
+Without a supported wrapper runtime, call the companion directly and note that the wrapper's
 post-run state cleanup will not happen (see "The shared-state detail").
 `install.ps1` uses local `dist/` only when both the requested version/platform
 asset and its checksum entry are present. Otherwise it downloads via `gh` into
@@ -181,6 +186,33 @@ gentle-cc doctor  [args]    # run doctor with the companion binary
 gentle-cc sync-all[args]    # official sync for other agents + Command Code
 ```
 
+### Wrapper-owned agent selection
+
+`sync`, `install`, and `sync-all` reject every user token equal to `--agent` or
+starting with `--agent=`, including empty values, repeated selectors, and attempts
+to select `command-code` itself. This also applies with `--help`, `-h`, dry-run,
+and after `--`. Rejection occurs before Python/state preflight, locking, builds,
+either binary invocation, or any state writes: exit status **1**, empty stdout,
+and exactly this stderr line:
+
+```text
+gentle-cc: --agent is managed by the wrapper; not allowed for sync, install, or sync-all
+```
+
+Omit the selector: the wrapper supplies `command-code` to the companion and, for
+`sync-all`, the recorded other-agent list to the official binary. `doctor`,
+`build`, and top-level help retain their existing argument behavior; this guard
+is not a restriction on direct binary invocations.
+
+The check is deliberately token-based, not an emulation of the external parser.
+A standalone `--agent=pi` is rejected even after an option that might consume it
+as data; use an attached value such as `--preset=--agent=pi` to express that data.
+Embedded text such as `some--agent=pi` is forwarded unchanged. External companion
+parser verification is **blocked pending target-specific consent** to inspect
+its implementation outside this repository. Repeated-selector interpretation,
+unknown short aliases, and other parser-specific selector forms remain unresolved;
+the tests prove this wrapper guard, not complete parser-level agent isolation.
+
 ## Reproducibility guarantees
 
 - Builds use `-trimpath -buildvcs=false` and inject the version from
@@ -258,11 +290,29 @@ strings). Missing state is allowed; malformed JSON, invalid schema and I/O
 errors are reported rather than silently ignored. A companion failure retains
 its exit status if cleanup succeeds; a cleanup failure returns an error instead.
 
-A directory lock at `~/.gentle-ai/gentle-cc.lock` serializes wrapper mutations,
-including the **entire** `sync-all` operation. A held lock fails immediately with
+A persistent regular file at `~/.gentle-ai/gentle-cc.lock`, locked with Python's
+`fcntl.flock`, serializes wrapper mutations, including the **entire** `sync-all`
+operation and cleanup. A held lock or a legacy directory lock fails immediately:
 `gentle-cc: shared state busy (gentle-cc.lock); see README recovery instructions`.
-Exit/signal traps release an owned lock. Forced termination (for example SIGKILL)
-can leave a stale lock; there is no automatic stale-lock recovery.
+Exit status is 1, stdout is empty, and shared state and binaries are untouched.
+Missing `fcntl.flock` reports exactly
+`gentle-cc: OS locking unavailable; requires Python 3 fcntl.flock on Linux/macOS`;
+other lock acquisition errors also fail closed. Filesystem support is required;
+use a locally controlled filesystem with working advisory locks.
+
+The lock file remains after completion: **never unlink, replace, or recreate it**,
+even when idle (doing so splits contenders across different inodes). An independent
+Python supervisor retains the lock until the foreground operation shell exits;
+that shell also inherits the locked descriptor. Killing the invoking wrapper
+alone with SIGKILL does not free the lock while its operation continues. SIGTERM
+and SIGINT are forwarded to the operation's process group; the supervisor retains
+the lock while the shell waits for its foreground binary, even if that binary
+ignores termination. Normal exit releases the OS lock without deleting the file.
+A killed invocation may leave state needing cleanup; OS lock release is not a
+transaction or automatic state repair. Daemonized/background writers, deliberate
+closure of inherited descriptors, and killing the whole supervisor/operation tree
+are outside this guarantee. Do not use binaries that leave background writers.
+No recovery or lock migration runs automatically.
 
 **Do not run direct official or companion writes simultaneously with the
 wrapper or each other.** Neither external binary honors this wrapper-only lock;
@@ -274,7 +324,8 @@ first and companion sync second, but is not a transaction with rollback.
 and the lock; `--dry-run=false --dry-run=true` skips cleanup and locking. A bare
 `--dry-run` means true. Go boolean spellings are supported: `1`, `t`, `T`, `true`,
 `TRUE`, `True` mean true; `0`, `f`, `F`, `false`, `FALSE`, `False` mean false.
-Arguments are forwarded unchanged. Informational invocations leave shared state
+Arguments accepted by the agent-selection guard are forwarded unchanged.
+Informational invocations leave shared state
 untouched by the wrapper; the binary determines its own behavior. `sync-all`
 still needs Python to read the other-agent list.
 Dry-run can hide unsupported-agent errors because it does not build adapters;
@@ -316,9 +367,19 @@ verify compatibility with a real `sync`.
   on `PATH` before running a mutating wrapper command.
 - `cannot clean shared state`: inspect and repair `~/.gentle-ai/state.json`;
   invalid existing state is rejected before either mutating binary runs.
-- `shared state busy (gentle-cc.lock)`: wait for the active wrapper. If a crash
-  left a stale lock, **first confirm no wrapper is active**, then manually run
-  `rmdir ~/.gentle-ai/gentle-cc.lock`. Never remove an active wrapper's lock.
+- `shared state busy (gentle-cc.lock)`: wait for the active operation (it may
+  outlive a killed invoking wrapper). Never delete a regular lock file.
+  A legacy **directory** lock has no trustworthy owner metadata. Age or a PID
+  alone cannot prove it is safe to remove. For separately authorized manual
+  migration, first establish exclusive control: stop all wrapper entry points,
+  schedulers and concurrent shells on every host sharing this HOME, and verify
+  that all old wrappers, supervisors, and binary children have finished. Only
+  while that exclusion remains in force, inspect the path and use `rmdir` on
+  the confirmed empty legacy directory (never recursive removal). If quiescence
+  cannot be proved, leave it in place. Then let the next wrapper create the OS
+  lock file. No real user lock recovery is performed by the tests or installer.
+- `OS locking unavailable` / `cannot acquire shared-state OS lock`: use supported
+  Linux/macOS Bash and Python 3 with working `fcntl.flock`; do not bypass the lock.
 - `checksum mismatch`: the download is corrupted or the manifest is stale — do
   not install; re-fetch from the pinned release.
 - Companion build fails: confirm `--ref` exists and Go is on `PATH`.

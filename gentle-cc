@@ -97,18 +97,113 @@ informational() {
   [ "$dry_run" = true ]
 }
 
+# Wrapper-owned routes must never forward user agent selectors to either binary.
+# Scan tokens even after -- or another option: external parser semantics are not
+# verified here, so a standalone selector-shaped token is conservatively denied.
+# Embedded data such as --preset=--agent=pi is not a selector token.
+reject_agent_selectors() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --agent|--agent=*)
+        die "--agent is managed by the wrapper; not allowed for sync, install, or sync-all" ;;
+    esac
+  done
+}
+
 begin_mutation() {
   require_python
-  local lock="$HOME/.gentle-ai/gentle-cc.lock"
-  mkdir -p "$HOME/.gentle-ai" || die "cannot create shared-state directory"
-  if ! mkdir "$lock" 2>/dev/null; then
-    die "shared state busy (gentle-cc.lock); see README recovery instructions"
+  local program guardian rc=0
+  # Snapshot our functions/configuration, not an environment-controlled bypass
+  # into this script. The supervised shell starts only after acquiring the lock.
+  program="$(declare -f)
+$(declare -p REPO BIN OFFICIAL CC_AGENT)
+set -euo pipefail
+trap 'exit 130' INT
+trap 'exit 143' TERM
+state_action validate
+mutate \"\$@\""
+  python3 - "$program" "$@" 3<&0 <<'PY' &
+import errno, os, signal, stat, subprocess, sys
+
+def fail(message):
+    print('gentle-cc: ' + message, file=sys.stderr)
+    sys.exit(1)
+
+try:
+    import fcntl
+    if not callable(getattr(fcntl, 'flock', None)):
+        raise ImportError()
+except ImportError:
+    fail('OS locking unavailable; requires Python 3 fcntl.flock on Linux/macOS')
+
+child = None
+pending = None
+
+def stop(signum, frame):
+    global pending
+    pending = signum
+    if child is not None:
+        try:
+            os.killpg(child.pid, signum)
+        except ProcessLookupError:
+            pass
+
+signal.signal(signal.SIGTERM, stop)
+signal.signal(signal.SIGINT, stop)
+path = os.path.expanduser('~/.gentle-ai/gentle-cc.lock')
+try:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # Never unlink this file: all wrappers must keep locking the same inode.
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        fail('cannot acquire shared-state lock; lock must be a regular single-link file')
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except OSError as error:
+    if error.errno in (errno.EAGAIN, errno.EACCES, errno.EISDIR):
+        fail('shared state busy (gentle-cc.lock); see README recovery instructions')
+    fail('cannot acquire shared-state OS lock; no mutation started')
+try:
+    if pending is not None:
+        sys.exit(128 + pending)
+    # The guardian survives death of the invoking wrapper. The operation shell
+    # also inherits the locked descriptor and retains it while waiting for its
+    # foreground binaries; no explicit LOCK_UN may release their shared lock.
+    child = subprocess.Popen(['/bin/bash', '-c', sys.argv[1], 'gentle-cc', *sys.argv[2:]],
+                             start_new_session=True, stdin=3, pass_fds=(fd,))
+    if pending is not None:
+        stop(pending, None)
+    rc = child.wait()
+    sys.exit(rc if rc >= 0 else 128 - rc)
+except OSError:
+    fail('cannot start locked operation; no mutation started')
+finally:
+    os.close(fd)
+PY
+  guardian=$!
+  trap 'kill -TERM "$guardian" 2>/dev/null || :; exit 143' TERM
+  trap 'kill -INT "$guardian" 2>/dev/null || :; exit 130' INT
+  wait "$guardian" || rc=$?
+  exit "$rc"
+}
+
+mutate() {
+  local command="$1" others
+  shift
+  if [ "$command" = sync-all ]; then
+    others="$(official_agents_from_state)"
+    ensure_bin
+    if [ -n "$others" ]; then
+      printf 'Official sync: %s\n' "$others"
+      "$OFFICIAL" sync --agent "$others" "$@" || die "official sync failed"
+    else
+      printf 'No other agents recorded; skipping official sync.\n'
+    fi
+    printf 'Companion sync: %s\n' "$CC_AGENT"
+    command=sync
   fi
-  # Installed only after successful acquisition; never release another owner.
-  trap 'rmdir "$HOME/.gentle-ai/gentle-cc.lock"' EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  state_action validate
+  run_companion "$command" --agent "$CC_AGENT" "$@"
 }
 
 run_companion() {
@@ -123,17 +218,20 @@ case "${1:-help}" in
   build)   build ;;
   sync)
     shift
-    if ! informational "$@"; then begin_mutation; fi
+    reject_agent_selectors "$@"
+    if ! informational "$@"; then begin_mutation sync "$@"; fi
     run_companion sync --agent "$CC_AGENT" "$@" ;;
   install)
     shift
-    if ! informational "$@"; then begin_mutation; fi
+    reject_agent_selectors "$@"
+    if ! informational "$@"; then begin_mutation install "$@"; fi
     run_companion install --agent "$CC_AGENT" "$@" ;;
   doctor)
     shift; ensure_bin; "$BIN" doctor "$@" ;;
   sync-all)
     shift
-    if informational "$@"; then require_python; else begin_mutation; fi
+    reject_agent_selectors "$@"
+    if informational "$@"; then require_python; else begin_mutation sync-all "$@"; fi
     others="$(official_agents_from_state)"
     ensure_bin
     if [ -n "$others" ]; then
@@ -154,7 +252,16 @@ gentle-cc — Command Code companion for gentle-ai
   gentle-cc doctor  [args]   Run doctor with the companion binary
   gentle-cc sync-all[args]   Official sync for other agents + Command Code
 
-Mutating install/sync/sync-all require Python 3 and an exclusive wrapper lock.
+sync/install/sync-all reject user --agent and --agent=... (also with help/dry-run
+or after --), before preflight, builds, binary execution or state writes. Error:
+gentle-cc: --agent is managed by the wrapper; not allowed for sync, install, or sync-all
+Exit status 1; stdout is empty. doctor/build/top-level help are unchanged.
+Embedded values like --preset=--agent=pi pass through; standalone selector tokens
+are rejected even as apparent option values. External parser forms are unverified.
+
+Mutating install/sync/sync-all require Python 3 fcntl.flock (Linux/macOS).
+The persistent OS lock file must never be removed, even when idle.
+Legacy lock directories fail closed; no automatic recovery is performed.
 Help (-h/--help) or effective --dry-run=true skips cleanup and locking.
 Repeated --dry-run flags: last value wins (Go boolean spellings; bare = true).
 Effective --dry-run=false still mutates. Do not run direct binaries concurrently.
