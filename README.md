@@ -84,7 +84,7 @@ been published:
 | --- | --- | --- |
 | Linux amd64 / arm64 | `install.sh` / Bash wrapper | Fake-binary fixture tests on the host; real E2E pending, not proof for both architectures. |
 | macOS amd64 / arm64 | `install.sh` / Bash wrapper | Not runtime-verified. |
-| Windows amd64 / arm64 | `install.ps1` / no native wrapper | Not runtime-verified; PowerShell unavailable. |
+| Windows amd64 / arm64 | `install.ps1` / no native wrapper | Isolated PowerShell installer fixtures on Windows; real binary runtime unverified. |
 
 Mutating wrapper commands require **Python 3** on `PATH` with `fcntl.flock`
 (for OS locking, shared-state validation and atomic cleanup). Linux fixture tests
@@ -100,9 +100,10 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 & (Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe") sync --agent command-code
 ```
 
-This example does not require the destination to be on `PATH`. The current
-PowerShell installer's final message suggests Git Bash/WSL; that wording is not
-runtime evidence and does **not** override the locking restriction below.
+This example does not require the destination to be on `PATH`. Direct binary
+calls skip wrapper cleanup and can leave Command Code IDs in shared state,
+causing official sync to fail; review "The shared-state detail" before use.
+Do not run direct binary writes concurrently with the wrapper or each other.
 
 The `gentle-cc` wrapper is a **bash** script (it does the `state.json` cleanup
 after each operation). **Git Bash is not a supported mutating wrapper runtime**:
@@ -117,8 +118,11 @@ fresh temporary staging, never using `dist/` as a download cache. A native `gh`
 failure or checksum mismatch aborts installation; owned staging is cleaned on
 success and failure. A complete but corrupt local release fails checksum
 verification rather than silently falling back to a download.
-`install.ps1` was not executed in this environment (no PowerShell available);
-run the fixture checks below before relying on it.
+The PowerShell installer rejects an existing directory or reparse point at
+`gentle-ai-cc.exe` before copying, preserving that destination on rejection.
+Use an exclusively controlled destination; concurrent path swaps and linked
+parent directories are not protected by this check. Isolated PowerShell fixtures
+have been executed on Windows; real companion runtime remains unverified.
 
 ## Do I need the gentle-ai repo or the official binary?
 
@@ -288,19 +292,25 @@ installed official binary's parser have not been verified.
 
 ## Installer regression checks
 
-Run isolated fixture tests (no real releases, Go builds, or installs into your
-home directory):
+Run the Bash installer fixtures without Python (no real downloads, Go builds,
+companion execution, or installs into your home directory):
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_help.py -v
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_wrapper.py -v
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_installers.py -v
-bash -n gentle-cc gentle-cc-install.sh install.sh
+bash -n tests/test_installers.sh
+bash tests/test_installers.sh
 ```
 
-These focused suites do not execute the separate future Linux probe. The
-installer suite runs `tests/installers.ps1` when `pwsh` or `powershell` is on
-`PATH`, and reports a skip otherwise. You can also run it directly:
+The suite invokes isolated copies of the public installers with fake transport,
+Git and Go tools. It checks release verification, source wrapper provenance,
+publication/rollback failures, destination rejection and authenticated child
+status/cleanup. A deliberately wrong isolated installer must fail a byte assertion
+(`RED`) before the real fixtures pass (`GREEN`). Scratch state is removed on exit.
+On filesystems without real POSIX modes or symlinks, the suite prints explicit
+`LIMITATION` messages; those checks are **not** platform certification. Fake curl
+avoids Git Bash's native `file://` transport limitations without skipping release
+assertions. These fixtures do not certify real companion or wrapper runtime.
+
+Run the separate Windows installer fixtures directly (no Python required):
 
 ```powershell
 pwsh -NoProfile -File tests/installers.ps1
@@ -308,7 +318,21 @@ pwsh -NoProfile -File tests/installers.ps1
 
 The PowerShell fixtures use fake `gh` downloads and temporary destinations to
 check local/version selection, checksum and native-command failures, unchanged
-local artifacts, and staging cleanup.
+local artifacts, staging cleanup, directory/reparse-point destination rejection,
+and native invocation guidance with shared-state warnings.
+
+The help and wrapper state/locking suites still require Python 3; migrating the
+installer fixtures does not remove that runtime dependency:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_help.py -v
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_wrapper.py -v
+bash -n gentle-cc gentle-cc-install.sh install.sh
+```
+
+None of these focused suites executes the separate future Linux probe. Run the
+Bash, PowerShell and Python suites independently; no Python test module delegates
+to the installer suites.
 
 ## Publishing a release (for the maintainer)
 
@@ -356,6 +380,19 @@ fields. Cleanup writes a temporary file in the same directory, preserves the
 file mode, flushes and fsyncs the file, then atomically replaces `state.json`.
 Already-open readers retain the old file; this does not make the companion's
 own writes atomic or promise durability across every filesystem/power failure.
+
+Custom state homes (`GENTLE_AI_HOME`) are **unsupported by the wrapper**: its
+state reader, cleanup and lock use `~/.gentle-ai`. Mutating `install`, `sync`, and
+`sync-all` reject any nonempty `GENTLE_AI_HOME` before Python preflight, locking,
+builds or binaries: exit status **1**, empty stdout, and exactly:
+
+```text
+gentle-cc: GENTLE_AI_HOME is unsupported for mutating wrapper commands; unset it
+```
+
+Unset it before mutations (an empty value is accepted). Help/read-only routing
+is unchanged; this does not implement custom-home isolation. Conservatively
+classified calls, including ambiguous dry-runs, also reject the override.
 
 Before invoking a mutating binary, the wrapper checks for Python 3 and validates
 existing state (a JSON object with an optional `installed_agents` list of
@@ -423,6 +460,7 @@ verify compatibility with a real `sync`.
 | `GENTLE_CC_REPO` | `~/dev/gentle-ai` | Branch checkout used to build the companion. |
 | `GENTLE_CC_BIN` | `~/.local/bin/gentle-ai-cc` | Companion binary path. |
 | `GENTLE_AI_BIN` | `gentle-ai` | Official binary used by `sync-all`. |
+| `GENTLE_AI_HOME` | Unset | Custom state home unsupported by wrapper mutations; any nonempty value is rejected. |
 | `GENTLE_CC_DEST` | Bash: `~/.local/bin`; PowerShell: `$env:LOCALAPPDATA\gentle-cc` | Installer destination; does not change wrapper lookup or `PATH`. |
 | `GENTLE_CC_VERSION` | `4.3.1-cc.1` | Release tag / build version passed by `install.sh`; release tag in PowerShell. |
 | `GENTLE_CC_SOURCE` | Unset | `install.sh` source Git URL; explicit override before local/remote releases. |

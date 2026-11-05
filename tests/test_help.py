@@ -33,6 +33,8 @@ class HelpTests(unittest.TestCase):
             "  gentle-cc install [args]   Install only Command Code (companion)",
             "  gentle-cc doctor  [args]   Run doctor with the companion binary",
             "  gentle-cc sync-all [args]  Official sync for other agents + Command Code",
+            "Mutating install/sync/sync-all reject nonempty GENTLE_AI_HOME; unset it.",
+            "Custom state homes are unsupported; help/read-only classification is unchanged.",
             "Mutating install/sync/sync-all require Python 3 fcntl.flock (Linux/macOS).",
             "The persistent OS lock file must never be removed, even when idle.",
             "  GENTLE_CC_BIN    companion binary path  (default ~/.local/bin/gentle-ai-cc)",

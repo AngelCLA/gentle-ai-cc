@@ -58,24 +58,31 @@ try {
   if (-not $expected) { throw "no checksum entry for $asset" }
   $actual = (Get-FileHash -LiteralPath (Join-Path $distDir $asset) -Algorithm SHA256).Hash.ToLower()
   if ($actual -ne $expected.ToLower()) {
-    throw "checksum mismatch for $asset: expected $expected got $actual"
+    throw "checksum mismatch for ${asset}: expected $expected got $actual"
   }
   Write-Host "checksum OK ($asset): $actual"
 
   New-Item -ItemType Directory -Force -Path $Dest | Out-Null
   $binPath = Join-Path $Dest "gentle-ai-cc.exe"
+  $destination = Get-Item -LiteralPath $binPath -Force -ErrorAction SilentlyContinue
+  if ($destination -and ($destination.PSIsContainer -or
+      ($destination.Attributes -band [IO.FileAttributes]::ReparsePoint))) {
+    throw "unsafe destination: $binPath"
+  }
   Copy-Item -LiteralPath (Join-Path $distDir $asset) -Destination $binPath -Force
   Write-Host "installed: $binPath"
 } finally {
   if ($ownedTemp) { Remove-Item -LiteralPath $ownedTemp -Recurse -Force }
 }
 
-# The gentle-cc wrapper is a bash script; on Windows use it via Git Bash or WSL,
-# or invoke the companion directly:
+# Native Windows uses the companion directly; the Bash wrapper needs POSIX locks.
 Write-Host ""
 Write-Host "next:"
 Write-Host "  $binPath version"
 Write-Host "  $binPath install --agent command-code --preset full-gentleman"
 Write-Host ""
-Write-Host "note: the gentle-cc wrapper is bash-only. On Windows, run it under Git Bash"
-Write-Host "      or WSL, or call the companion binary directly as above."
+Write-Host "Git Bash is not a supported mutating wrapper runtime."
+Write-Host "WSL requires Linux Bash/Python with fcntl.flock; runtime unverified."
+Write-Host "Direct binary calls skip shared-state cleanup; official sync may fail."
+Write-Host "Do not run direct binary writes concurrently with the wrapper or each other."
+Write-Host "See README: The shared-state detail."

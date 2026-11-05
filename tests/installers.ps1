@@ -64,7 +64,8 @@ try {
     $callsBefore = $global:DownloadDirs.Count
     $global:DownloadMode = $case
     $failure = $null
-    try { & (Join-Path $fixture "install.ps1") } catch { $failure = $_.Exception.Message }
+    $output = @()
+    try { $output = @(& (Join-Path $fixture "install.ps1") 6>&1) } catch { $failure = $_.Exception.Message }
     $shouldFail = $case -in @("local-mismatch", "mismatch", "incomplete", "gh-failure")
     Assert (($null -ne $failure) -eq $shouldFail) "$case failure outcome: $failure"
     if ($case -in @("local-mismatch", "mismatch")) {
@@ -81,9 +82,50 @@ try {
     foreach ($directory in $global:DownloadDirs) {
       Assert (-not (Test-Path -LiteralPath $directory)) "$case owned staging cleaned"
     }
+    if (-not $shouldFail) {
+      $guidance = $output -join "`n"
+      Assert ($guidance.Contains("$installed install --agent command-code --preset full-gentleman")) "$case native invocation"
+    }
     Write-Host "PASS: $case"
   }
   Assert (($global:DownloadDirs | Select-Object -Unique).Count -eq $global:DownloadDirs.Count) "fresh staging for each download/version"
+  foreach ($kind in @("directory", "junction")) {
+    $fixture = Join-Path $root $kind
+    New-Item -ItemType Directory -Path $fixture | Out-Null
+    Copy-Item -LiteralPath $source -Destination (Join-Path $fixture "install.ps1")
+    $dist = Join-Path $fixture "dist"
+    Write-Release $dist "v1" "local bytes"
+    $before = Snapshot $dist
+    $env:GENTLE_CC_VERSION = "v1"
+    $env:GENTLE_CC_DEST = Join-Path $fixture "dest"
+    New-Item -ItemType Directory -Path $env:GENTLE_CC_DEST | Out-Null
+    $installed = Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe"
+    $target = Join-Path $fixture "target"
+    if ($kind -eq "directory") {
+      New-Item -ItemType Directory -Path $installed | Out-Null
+      $target = $installed
+    } else {
+      New-Item -ItemType Directory -Path $target | Out-Null
+      New-Item -ItemType Junction -Path $installed -Target $target | Out-Null
+    }
+    [IO.File]::WriteAllText((Join-Path $target "keep"), "unchanged")
+    $attributes = (Get-Item -LiteralPath $installed -Force).Attributes
+    $callsBefore = $global:DownloadDirs.Count
+    $failure = $null
+    try { & (Join-Path $fixture "install.ps1") } catch { $failure = $_.Exception.Message }
+    Assert ($failure -eq "unsafe destination: $installed") "$kind exact rejection: $failure"
+    Assert ((Get-Item -LiteralPath $installed -Force).Attributes -eq $attributes) "$kind destination preserved"
+    Assert (([IO.File]::ReadAllText((Join-Path $target "keep"))) -eq "unchanged") "$kind sentinel preserved"
+    Assert (@(Get-ChildItem -LiteralPath $target -Force).Count -eq 1) "$kind no nested copy"
+    Assert ((Snapshot $dist) -eq $before) "$kind local dist preserved"
+    Assert ($global:DownloadDirs.Count -eq $callsBefore) "$kind no download"
+    Write-Host "PASS: unsafe $kind"
+  }
+  Assert ($guidance.Contains("Git Bash is not a supported mutating wrapper runtime.")) "Git Bash warning"
+  Assert ($guidance.Contains("WSL requires Linux Bash/Python with fcntl.flock; runtime unverified.")) "WSL limitation"
+  Assert ($guidance.Contains("Direct binary calls skip shared-state cleanup; official sync may fail.")) "cleanup warning"
+  Assert ($guidance.Contains("Do not run direct binary writes concurrently with the wrapper or each other.")) "concurrency warning"
+  Write-Host "PASS: native/WSL guidance and shared-state warnings"
 } finally {
   foreach ($name in $envNames) { [Environment]::SetEnvironmentVariable($name, $saved[$name]) }
   Remove-Item Function:\gh

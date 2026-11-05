@@ -23,7 +23,7 @@ class WrapperTests(unittest.TestCase):
         self.bin.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\nprintf called > "$HOME/called"\nexit "${STUB_EXIT:-0}"\n')
         self.bin.chmod(0o755)
         self.env = dict(os.environ, HOME=str(self.home), GENTLE_CC_BIN=str(self.bin),
-                        GENTLE_AI_BIN=str(self.bin), STUB_EXIT='0')
+                        GENTLE_AI_BIN=str(self.bin), GENTLE_AI_HOME='', STUB_EXIT='0')
 
     def run_wrapper(self, *args, **env):
         return subprocess.run(['/bin/bash', str(ROOT / 'gentle-cc'), *args],
@@ -32,6 +32,43 @@ class WrapperTests(unittest.TestCase):
     def assert_result(self, result, code, stdout, stderr=''):
         self.assertEqual((result.returncode, result.stdout, result.stderr),
                          (code, stdout, stderr))
+
+    def test_custom_home_mutations_rejected_before_any_work(self):
+        custom = self.home / 'custom'
+        custom.mkdir()
+        sentinel = custom / 'state.json'
+        sentinel.write_bytes(b'custom state unchanged')
+        empty = self.home / 'empty'
+        empty.mkdir()
+        before = self.state.read_bytes(), self.state.stat().st_mtime_ns
+        for command in ('sync', 'install', 'sync-all'):
+            for flags in ((), ('--dry-run=false',), ('--dry-run', '--dry-run=false'),
+                          ('--preset', 'full', '--dry-run')):
+                for value in (str(custom), ' '):
+                    with self.subTest(command=command, flags=flags, value=value):
+                        self.assert_result(self.run_wrapper(
+                            command, *flags, GENTLE_AI_HOME=value, PATH=str(empty),
+                            GENTLE_CC_BIN=str(self.home / 'missing-bin')), 1, '',
+                            'gentle-cc: GENTLE_AI_HOME is unsupported for mutating wrapper commands; unset it\n')
+                        self.assertEqual((self.state.read_bytes(), self.state.stat().st_mtime_ns), before)
+                        self.assertEqual(sentinel.read_bytes(), b'custom state unchanged')
+                        self.assertFalse((self.state.parent / 'gentle-cc.lock').exists())
+                        self.assertFalse((self.home / 'called').exists())
+                        self.assertEqual(sorted(p.name for p in custom.iterdir()), ['state.json'])
+
+    def test_custom_home_read_only_behavior_unchanged(self):
+        before = self.state.read_bytes(), self.state.stat().st_mtime_ns
+        for command in ('sync', 'install', 'sync-all'):
+            for flags in (('--help',), ('--dry-run',), ('--dry-run=false', '--dry-run')):
+                with self.subTest(command=command, flags=flags):
+                    self.assert_result(self.run_wrapper(command, *flags, GENTLE_AI_HOME='custom'),
+                                       0, self.dry_run_stdout(command, flags))
+        self.assert_result(self.run_wrapper('doctor', GENTLE_AI_HOME='custom'), 0, 'doctor\n')
+        result = self.run_wrapper('--help', GENTLE_AI_HOME='custom')
+        self.assertEqual((result.returncode, result.stderr), (0, ''))
+        self.assertIn('Mutating install/sync/sync-all reject nonempty GENTLE_AI_HOME', result.stdout)
+        self.assertEqual((self.state.read_bytes(), self.state.stat().st_mtime_ns), before)
+        self.assertFalse((self.state.parent / 'gentle-cc.lock').exists())
 
     def test_agent_selectors_rejected_before_any_work(self):
         selectors = (
