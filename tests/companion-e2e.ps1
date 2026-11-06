@@ -23,7 +23,7 @@ $env:TMP = $tempDir
 $env:TEMP = $tempDir
 $env:TMPDIR = $tempDir
 $env:GENTLE_CC_DEST = $binDir
-$env:GENTLE_CC_VERSION = '4.3.1-cc.2'
+$env:GENTLE_CC_VERSION = '4.3.1-cc.3'
 $env:GENTLE_CC_REPO = Join-Path $root 'no-source-checkout'
 Remove-Item Env:GENTLE_AI_HOME, Env:GENTLE_CC_SOURCE, Env:GENTLE_CC_REF, Env:GENTLE_CC_OWNER_REPO, Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
 
@@ -114,7 +114,7 @@ if ($IsWindows) {
   }
   $suffix = '.exe'
 } else {
-  & bash (Join-Path $repo 'gentle-cc-install.sh') --from-release 'https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.2' --version $env:GENTLE_CC_VERSION
+  & bash (Join-Path $repo 'gentle-cc-install.sh') --from-release 'https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.3' --version $env:GENTLE_CC_VERSION
   Assert-Exit 'release installer'
   $suffix = ''
 }
