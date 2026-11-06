@@ -2,8 +2,9 @@
 
 Use the **official `gentle-ai` release** for every supported agent *and* use
 **Command Code** (`command-code`), without waiting for upstream to accept a
-Command Code adapter. Release installation needs no gentle-ai source checkout;
-real end-to-end Linux validation remains pending.
+Command Code adapter. Release installation needs no gentle-ai source checkout.
+A user-run Linux amd64 smoke test has now completed; broader Linux distribution
+and architecture coverage remains unverified.
 
 > Command Code support is **not** upstream. Issues #1913 (approved, then
 > `NOT_PLANNED`), #4105 and #5790 were closed under the policy *"we're not
@@ -100,7 +101,7 @@ been published:
 
 | OS / arch packaging targets | Installer / wrapper | Runtime evidence here |
 | --- | --- | --- |
-| Linux amd64 / arm64 | `install.sh` / native Go wrapper | Cross-compilation only; Unix runtime not certified. |
+| Linux amd64 / arm64 | `install.sh` / native Go wrapper | User-run Linux amd64 smoke test: release install and checksums, `install --preset full-gentleman` (21 verification checks), `sync`, and Command Code loading global MCP/skill configuration. Other distributions and arm64 runtime remain unverified. |
 | macOS amd64 / arm64 | `install.sh` / native Go wrapper | Cross-compilation only; Unix runtime not certified. |
 | Windows amd64 / arm64 | `install.ps1` / native Go wrapper | Isolated native amd64 CLI and PowerShell fixtures; real companion E2E and arm64 runtime unverified. |
 
