@@ -14,13 +14,14 @@ T4 | S1-S2 | parent | done | PowerShell 7.6 installer fixtures pass; PowerShell 
 T5 | S1 | parent | blocked | Native review lineage `review-537e244fc9e3eec2` is open; reviewer launch failed as unavailable because no model is configured for `review-resilience`. Bound STATUS reoffered the same slots; no capture replayed.
 T6 | S1 | parent | done | User authorized and push succeeded: `fix/release-defaults` now points to `987a24e`; no release publication performed.
 T7 | S1 | parent | done | GitHub Actions run `42291955712` for `987a24e` passed on both `ubuntu-24.04` and `windows-2022`; release publication remains out of scope.
-T8 | S1-S2 | parent | in_progress | README and task evidence updated with hosted run; verify and commit/push documentation on the already-authorized branch.
+T8 | S1-S2 | parent | done | README and task evidence record run `42291955712`; documentation commit `52eb0e1` pushed to `fix/release-defaults`.
 
 L2. Independent verifier found that the first E2E edit removed `GENTLE_CC_BIN` while shared post-install checks still referenced it, breaking both OS jobs. Parent reproduced the null-path failure; corrected all direct checks to use `$companionBin`, while preserving explicit Linux override and Windows sibling lookup. Independent follow-up and local structural path probe passed.
 L3. Native review was due for the workflow slice; ASSESS classified it high-risk (item 5). START created lineage `review-537e244fc9e3eec2`. The resilience-slot run failed before model execution because no review-resilience model is configured. Bound STATUS showed the same reviewer slots; no retry, acknowledgement or approval was submitted.
 L4. User decision: "si autorizo pero no creo que se pueda lo del modelo"
 L5. User authorized pushing the branch; `git push origin fix/release-defaults` succeeded, advancing the remote from `134ac7a` to `987a24e`. No release publication authorized.
 L6. GitHub Actions run `42291955712` for commit `987a24e` completed successfully. Both the `ubuntu-24.04 published release` and `windows-2022 published release` jobs passed; Windows PowerShell installer fixtures and the real published-companion E2E step passed.
+L7. Commit `52eb0e1` updated README platform evidence and task history; push of the documentation update succeeded.
 
 ## Log
 L1. User original request: "okay... lo tomare como de que ya puedo distribuirlo... mas que nada para compartirlo y otros desarrolladores me ayuden. Pero ahora quiero que funcione para windows tambien"
