@@ -25,7 +25,7 @@ $env:TMPDIR = $tempDir
 $env:GENTLE_CC_DEST = $binDir
 $env:GENTLE_CC_VERSION = '4.3.1-cc.2'
 $env:GENTLE_CC_REPO = Join-Path $root 'no-source-checkout'
-Remove-Item Env:GENTLE_AI_HOME, Env:GENTLE_CC_SOURCE, Env:GENTLE_CC_REF, Env:GENTLE_CC_OWNER_REPO, Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+Remove-Item Env:GENTLE_AI_HOME, Env:GENTLE_CC_SOURCE, Env:GENTLE_CC_REF, Env:GENTLE_CC_OWNER_REPO, Env:GENTLE_CC_BIN, Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
 
 function Assert-Exit($Description) {
   if ($LASTEXITCODE -ne 0) { throw "$Description failed with exit code $LASTEXITCODE" }
@@ -60,24 +60,26 @@ function Assert-Result($Phase) {
 Write-Host "Testing public release $env:GENTLE_CC_VERSION on $env:RUNNER_OS / $env:RUNNER_ARCH; network is not restricted."
 Write-Host "Checkout: $env:GITHUB_SHA; no secrets are deliberately passed to the test."
 if ($IsWindows) {
-  # Fetch the exact public assets into a new staging directory. The copied
-  # installer then verifies both against the downloaded checksum manifest.
-  $stage = Join-Path $root 'release-stage'
-  $dist = Join-Path $stage 'dist'
-  New-Item -ItemType Directory -Path $dist -Force | Out-Null
+  # Copy only the installer: an absent dist forces its public HTTPS release path.
+  $stage = Join-Path $root 'installer-stage'
+  New-Item -ItemType Directory -Path $stage | Out-Null
   Copy-Item -LiteralPath (Join-Path $repo 'install.ps1') -Destination (Join-Path $stage 'install.ps1')
-  $base = 'https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.2'
-  foreach ($name in @('checksums.txt', 'gentle-ai-cc_4.3.1-cc.2_windows_amd64.exe', 'gentle-cc_4.3.1-cc.2_windows_amd64.exe')) {
-    Invoke-WebRequest -Uri "$base/$name" -OutFile (Join-Path $dist $name) -UseBasicParsing
+  # Hide gh so this E2E deterministically verifies the unauthenticated public route.
+  $originalPath = $env:PATH
+  try {
+    $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+    if (Test-Path -LiteralPath (Join-Path $stage 'dist')) { throw 'Windows public-install fixture unexpectedly has dist/' }
+    if (Get-Command gh -ErrorAction SilentlyContinue) { throw 'gh must be unavailable to force the public HTTPS path' }
+    & (Join-Path $stage 'install.ps1')
+  } finally {
+    $env:PATH = $originalPath
   }
-  & (Join-Path $stage 'install.ps1')
   $suffix = '.exe'
 } else {
   & bash (Join-Path $repo 'gentle-cc-install.sh') --from-release 'https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.2' --version $env:GENTLE_CC_VERSION
   Assert-Exit 'release installer'
   $suffix = ''
 }
-$env:GENTLE_CC_BIN = Join-Path $binDir "gentle-ai-cc$suffix"
 $wrapper = Join-Path $binDir "gentle-cc$suffix"
 foreach ($path in @($env:GENTLE_CC_BIN, $wrapper)) {
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing installed binary: $path" }

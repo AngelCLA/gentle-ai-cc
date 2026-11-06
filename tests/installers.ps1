@@ -158,7 +158,7 @@ try {
     if ($public.Gh -eq "native") {
       $nativeGhDir = Join-Path $fixture "native-gh"
       New-Item -ItemType Directory -Path $nativeGhDir | Out-Null
-      [IO.File]::WriteAllText((Join-Path $nativeGhDir "gh.cmd"), "@echo off`r`nif `"%1`"==`"auth`" (`r`n  echo not logged in 1^>^&2`r`n  exit /b 1`r`n)`r`nexit /b 1`r`n")
+      [IO.File]::WriteAllText((Join-Path $nativeGhDir "gh.cmd"), "@echo off`r`nif `"%1`"==`"auth`" (`r`n  echo not logged in 1>&2`r`n  exit /b 1`r`n)`r`nexit /b 1`r`n")
       $env:PATH = "$nativeGhDir;$env:SystemRoot\System32;$env:SystemRoot"
     } elseif ($public.Gh -ne "none") {
       function global:gh {
@@ -176,6 +176,7 @@ try {
     Assert (([IO.File]::ReadAllText((Join-Path $env:GENTLE_CC_DEST "gentle-ai-cc.exe"))) -eq "public-$($public.Name)") "$($public.Name) binary bytes"
     Assert (([IO.File]::ReadAllText((Join-Path $env:GENTLE_CC_DEST "gentle-cc.exe"))) -eq "wrapper-public-$($public.Name)") "$($public.Name) wrapper bytes"
     Assert (($output -join "`n").Contains("downloading release $version from https://github.com/fixture/repo/releases/download/$version ...")) "$($public.Name) announcement"
+    Assert ($global:HttpDirs.Count -eq 3) "$($public.Name) requested all public assets"
     foreach ($directory in $global:HttpDirs) { Assert (-not (Test-Path -LiteralPath $directory)) "$($public.Name) staging cleaned" }
     Write-Host "PASS: $($public.Name)"
   }

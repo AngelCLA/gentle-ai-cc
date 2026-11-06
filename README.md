@@ -102,7 +102,7 @@ been published:
 | --- | --- | --- |
 | Linux amd64 / arm64 | `install.sh` / native Go wrapper | Cross-compilation only; Unix runtime not certified. |
 | macOS amd64 / arm64 | `install.sh` / native Go wrapper | Cross-compilation only; Unix runtime not certified. |
-| Windows amd64 / arm64 | `install.ps1` / native Go wrapper | Isolated native amd64 CLI and PowerShell fixtures; real companion E2E and arm64 runtime unverified. |
+| Windows amd64 / arm64 | `install.ps1` / native Go wrapper | Windows 2022 amd64 hosted E2E is configured to use the public HTTPS installer path and run the installed wrapper; the updated run is pending, and arm64 runtime remains unverified. |
 
 On **Windows**, run `install.ps1`; it uses a prepared native release or local
 `dist/`. The wrapper locates the companion as a sibling `gentle-ai-cc.exe`:
@@ -125,10 +125,19 @@ do not run them concurrently with the wrapper or each other.
 `install.ps1` uses local `dist/` only when **both** requested native version/platform
 assets and both checksum entries are present. Otherwise it downloads into fresh
 temporary staging, never using `dist/` as a download cache: authenticated `gh`
-when available, otherwise the public HTTPS release URL. A download failure or
-checksum mismatch aborts installation; owned staging is cleaned on success and
-failure. A complete but corrupt local release fails checksum verification rather
-than silently falling back to a download.
+when available, otherwise the public HTTPS release URL. A failed `gh auth status`
+(including native stderr under Windows PowerShell 5.1) selects public HTTPS;
+a download failure or checksum mismatch aborts installation. Owned staging is
+cleaned on success and failure. A complete but corrupt local release fails
+checksum verification rather than silently falling back to a download.
+
+The hosted Windows E2E copies only `install.ps1` into a clean staging directory
+and hides `gh` from `PATH`, so it exercises unauthenticated public HTTPS download
+rather than a prepared local release. It then runs the installed binaries through
+`version`, wrapper `install --preset full-gentleman`, and `sync` in an isolated
+user profile. This verifies the Windows amd64 release path when that workflow run
+passes; it does not certify arm64, every Windows version, or every full-preset
+network integration.
 The PowerShell installer rejects an existing directory or reparse point at
 either `gentle-ai-cc.exe` or `gentle-cc.exe`, and rejects a linked/non-directory
 destination directory before writes. It stages both files and backups before
