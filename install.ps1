@@ -68,8 +68,16 @@ try {
     $distDir = $downloadDir
     $ghReady = $false
     if (Get-Command gh -ErrorAction SilentlyContinue) {
-      gh auth status *> $null
-      $ghReady = ($LASTEXITCODE -eq 0)
+      # Windows PowerShell 5.1 promotes redirected native stderr under Stop;
+      # authentication failure is expected and should select public HTTPS.
+      $previousErrorActionPreference = $ErrorActionPreference
+      try {
+        $ErrorActionPreference = "Continue"
+        gh auth status *> $null
+        $ghReady = ($LASTEXITCODE -eq 0)
+      } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+      }
     }
     $downloaded = $false
     if ($ghReady) {

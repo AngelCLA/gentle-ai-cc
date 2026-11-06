@@ -136,6 +136,7 @@ try {
   }
   foreach ($public in @(
       @{ Name = "public-gh-unauth"; Gh = "unauth"; Missing = "" },
+      @{ Name = "public-gh-native-stderr"; Gh = "native"; Missing = "" },
       @{ Name = "public-default-version"; Gh = "none"; Missing = ""; Default = $true })) {
     $fixture = Join-Path $root $public.Name
     New-Item -ItemType Directory -Path $fixture | Out-Null
@@ -154,7 +155,12 @@ try {
     $global:HttpDirs = @()
     if (Test-Path Function:\gh) { Remove-Item Function:\gh }
     $global:AuthMode = $public.Gh
-    if ($public.Gh -ne "none") {
+    if ($public.Gh -eq "native") {
+      $nativeGhDir = Join-Path $fixture "native-gh"
+      New-Item -ItemType Directory -Path $nativeGhDir | Out-Null
+      [IO.File]::WriteAllText((Join-Path $nativeGhDir "gh.cmd"), "@echo off`r`nif `"%1`"==`"auth`" (`r`n  echo not logged in 1^>^&2`r`n  exit /b 1`r`n)`r`nexit /b 1`r`n")
+      $env:PATH = "$nativeGhDir;$env:SystemRoot\System32;$env:SystemRoot"
+    } elseif ($public.Gh -ne "none") {
       function global:gh {
         if ($args[0] -eq "auth") {
           $global:LASTEXITCODE = if ($global:AuthMode -eq "unauth") { 1 } else { 0 }
