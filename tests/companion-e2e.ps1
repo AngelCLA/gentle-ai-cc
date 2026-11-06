@@ -44,9 +44,47 @@ function Assert-Result($Phase) {
     if (-not $mcp.mcpServers -or -not $mcp.mcpServers.PSObject.Properties[$server] -or
         -not $mcp.mcpServers.$server.command) { throw "$Phase`: missing MCP server command: $server" }
   }
+  if ($IsLinux) {
+    $engramEntry = $mcp.mcpServers.engram
+    $engramArgs = @($engramEntry.args)
+    if ($engramArgs.Count -ne 2 -or $engramArgs[0] -cne 'mcp' -or $engramArgs[1] -cne '--tools=agent') {
+      throw "$Phase`: unexpected Engram MCP arguments"
+    }
+    $resolvedEngram = Get-Command -Name $engramEntry.command -CommandType Application -ErrorAction SilentlyContinue
+    if (-not $resolvedEngram -or
+        [System.IO.Path]::GetFullPath($resolvedEngram.Source) -cne [System.IO.Path]::GetFullPath($engramBinary)) {
+      throw "$Phase`: Engram MCP command does not resolve to the checksum-verified test binary"
+    }
+  }
   $skillsDir = Join-Path $agentDir 'skills'
-  if (-not (Test-Path -LiteralPath $skillsDir -PathType Container) -or
-      -not (Get-ChildItem -LiteralPath $skillsDir -Filter 'SKILL.md' -File -Recurse | Select-Object -First 1)) {
+  if ($IsLinux) {
+    $skillDir = Join-Path $skillsDir 'skill-creator'
+    $skillFile = Join-Path $skillDir 'SKILL.md'
+    $referenceDir = Join-Path $skillDir 'references'
+    $styleGuideFile = Join-Path $referenceDir 'skill-style-guide.md'
+    foreach ($path in @($skillsDir, $skillDir, $skillFile, $referenceDir, $styleGuideFile)) {
+      if (-not (Test-Path -LiteralPath $path)) { throw "$Phase`: missing skill artifact: $path" }
+      $item = Get-Item -LiteralPath $path
+      if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "$Phase`: linked skill artifact is not accepted: $path"
+      }
+    }
+    if ((Get-Item -LiteralPath $skillFile).PSIsContainer -or
+        (Get-Item -LiteralPath $styleGuideFile).PSIsContainer -or
+        (Get-Item -LiteralPath $skillFile).Length -eq 0 -or
+        (Get-Item -LiteralPath $styleGuideFile).Length -eq 0) {
+      throw "$Phase`: skill-creator or its style guide is empty or not a file"
+    }
+    $skillText = Get-Content -LiteralPath $skillFile -Raw
+    $styleGuideText = Get-Content -LiteralPath $styleGuideFile -Raw
+    if ($skillText -notmatch '(?m)^name:\s*skill-creator\s*$') {
+      throw "$Phase`: skill-creator metadata is missing or invalid"
+    }
+    if ($styleGuideText -notmatch '(?m)^#\s+\S') {
+      throw "$Phase`: skill-style-guide.md has no Markdown heading"
+    }
+  } elseif (-not (Test-Path -LiteralPath $skillsDir -PathType Container) -or
+            -not (Get-ChildItem -LiteralPath $skillsDir -Filter 'SKILL.md' -File -Recurse | Select-Object -First 1)) {
     throw "$Phase`: no installed skill found"
   }
   if (-not (Test-Path -LiteralPath $stateFile -PathType Leaf)) { throw "$Phase`: missing state.json" }
@@ -77,6 +115,36 @@ if ($IsWindows) {
   Assert-Exit 'release installer'
   $suffix = ''
 }
+if ($IsLinux) {
+  $engramVersion = '3.6.2'
+  # GitHub release asset digest; do not accept an unpinned third-party executable.
+  $engramSha256 = '3527b7e7e8692fd4aaaf576d331cded19155523cf8b02c2de38744cccb229e89'
+  $engramArchive = Join-Path $tempDir "engram_${engramVersion}_linux_amd64.tar.gz"
+  $engramUrl = "https://github.com/Gentleman-Programming/engram/releases/download/v$engramVersion/engram_${engramVersion}_linux_amd64.tar.gz"
+  $null = Invoke-WebRequest -Uri $engramUrl -OutFile $engramArchive -UseBasicParsing
+  $actualEngramHash = (Get-FileHash -LiteralPath $engramArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($actualEngramHash -cne $engramSha256) {
+    throw "Engram $engramVersion archive checksum mismatch: $actualEngramHash"
+  }
+  $engramExtractDir = Join-Path $root 'engram-release'
+  New-Item -ItemType Directory -Path $engramExtractDir | Out-Null
+  & tar -xzf $engramArchive -C $engramExtractDir
+  Assert-Exit 'Engram archive extraction'
+  $engramFiles = @(Get-ChildItem -LiteralPath $engramExtractDir -Filter 'engram' -File -Recurse)
+  if ($engramFiles.Count -ne 1) { throw 'Engram archive must contain exactly one `engram` binary' }
+  $engramBinary = $engramFiles[0].FullName
+  if (($engramFiles[0].Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw 'Refusing linked Engram binary from release archive'
+  }
+  & chmod +x $engramBinary
+  Assert-Exit 'Engram executable permissions'
+  $engramBinDirectory = $engramFiles[0].DirectoryName
+  $env:PATH = "$engramBinDirectory$([System.IO.Path]::PathSeparator)$env:PATH"
+  $env:ENGRAM_DATA_DIR = Join-Path $root 'engram-data'
+  New-Item -ItemType Directory -Path $env:ENGRAM_DATA_DIR | Out-Null
+  & $engramBinary version
+  Assert-Exit 'Engram version'
+}
 $env:GENTLE_CC_BIN = Join-Path $binDir "gentle-ai-cc$suffix"
 $wrapper = Join-Path $binDir "gentle-cc$suffix"
 foreach ($path in @($env:GENTLE_CC_BIN, $wrapper)) {
@@ -93,6 +161,10 @@ try {
   & $wrapper sync
   Assert-Exit 'wrapper sync'
   Assert-Result 'sync'
+  if ($IsLinux) {
+    & python3 (Join-Path $repo 'tests/engram-mcp-smoke.py') $engramBinary
+    Assert-Exit 'Engram MCP runtime smoke'
+  }
 } finally {
   Pop-Location
 }

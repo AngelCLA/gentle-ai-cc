@@ -26,17 +26,29 @@ class LinuxCompanionWorkflowTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", text)
         self.assertNotRegex(text, r"secrets\.[A-Za-z_]")
 
-    def test_relevant_e2e_sources_trigger_the_linux_workflow(self):
+    def test_main_push_and_pull_request_are_not_path_filtered(self):
         text = WORKFLOW.read_text(encoding="utf-8")
-        for path in (
-            ".github/workflows/linux-companion-e2e.yml",
-            "tests/companion-e2e.ps1",
-            "tests/engram-mcp-smoke.py",
-            "tests/test_linux_release_workflow.py",
-            "tests/test_engram_mcp_smoke.py",
-            "gentle-cc-install.sh",
-        ):
-            self.assertIn(path, text)
+        triggers = text.split("\njobs:\n", 1)[0]
+        self.assertNotRegex(triggers, r"(?m)^\s+paths(?:-ignore)?:")
+
+    def test_linux_e2e_pins_engram_and_executes_real_mcp_smoke(self):
+        e2e = (ROOT / "tests/companion-e2e.ps1").read_text(encoding="utf-8")
+        self.assertIn("3.6.2", e2e)
+        self.assertIn("3527b7e7e8692fd4aaaf576d331cded19155523cf8b02c2de38744cccb229e89", e2e)
+        self.assertIn("ENGRAM_DATA_DIR", e2e)
+        self.assertIn("engram-mcp-smoke.py", e2e)
+        self.assertIn("Engram MCP runtime smoke", e2e)
+        self.assertIn("Engram MCP command does not resolve to the checksum-verified test binary", e2e)
+
+    def test_e2e_checks_expected_skill_and_local_reference_artifacts(self):
+        e2e = (ROOT / "tests/companion-e2e.ps1").read_text(encoding="utf-8")
+        self.assertIn("skill-creator", e2e)
+        self.assertIn("skill-style-guide.md", e2e)
+
+    def test_linux_workflow_runs_offline_harness_tests_before_hosted_e2e(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("python3 tests/test_linux_release_workflow.py", text)
+        self.assertIn("python3 tests/test_engram_mcp_smoke.py", text)
 
 
 if __name__ == "__main__":
