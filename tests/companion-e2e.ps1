@@ -98,17 +98,20 @@ function Assert-Result($Phase) {
 Write-Host "Testing public release $env:GENTLE_CC_VERSION on $env:RUNNER_OS / $env:RUNNER_ARCH; network is not restricted."
 Write-Host "Checkout: $env:GITHUB_SHA; no secrets are deliberately passed to the test."
 if ($IsWindows) {
-  # Fetch the exact public assets into a new staging directory. The copied
-  # installer then verifies both against the downloaded checksum manifest.
-  $stage = Join-Path $root 'release-stage'
-  $dist = Join-Path $stage 'dist'
-  New-Item -ItemType Directory -Path $dist -Force | Out-Null
+  # Copy only the installer: an absent dist forces its public HTTPS release path.
+  $stage = Join-Path $root 'installer-stage'
+  New-Item -ItemType Directory -Path $stage | Out-Null
   Copy-Item -LiteralPath (Join-Path $repo 'install.ps1') -Destination (Join-Path $stage 'install.ps1')
-  $base = 'https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.2'
-  foreach ($name in @('checksums.txt', 'gentle-ai-cc_4.3.1-cc.2_windows_amd64.exe', 'gentle-cc_4.3.1-cc.2_windows_amd64.exe')) {
-    Invoke-WebRequest -Uri "$base/$name" -OutFile (Join-Path $dist $name) -UseBasicParsing
+  # Hide gh so this E2E deterministically verifies the unauthenticated public route.
+  $originalPath = $env:PATH
+  try {
+    $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+    if (Test-Path -LiteralPath (Join-Path $stage 'dist')) { throw 'Windows public-install fixture unexpectedly has dist/' }
+    if (Get-Command gh -ErrorAction SilentlyContinue) { throw 'gh must be unavailable to force the public HTTPS path' }
+    & (Join-Path $stage 'install.ps1')
+  } finally {
+    $env:PATH = $originalPath
   }
-  & (Join-Path $stage 'install.ps1')
   $suffix = '.exe'
 } else {
   & bash (Join-Path $repo 'gentle-cc-install.sh') --from-release 'https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.2' --version $env:GENTLE_CC_VERSION
@@ -145,15 +148,22 @@ if ($IsLinux) {
   & $engramBinary version
   Assert-Exit 'Engram version'
 }
-$env:GENTLE_CC_BIN = Join-Path $binDir "gentle-ai-cc$suffix"
+$companionBin = Join-Path $binDir "gentle-ai-cc$suffix"
 $wrapper = Join-Path $binDir "gentle-cc$suffix"
-foreach ($path in @($env:GENTLE_CC_BIN, $wrapper)) {
+if ($IsWindows) {
+  # Exercise the wrapper's normal sibling lookup on Windows.
+  Remove-Item Env:GENTLE_CC_BIN -ErrorAction SilentlyContinue
+} else {
+  # Preserve the Linux smoke's explicit companion selection.
+  $env:GENTLE_CC_BIN = $companionBin
+}
+foreach ($path in @($companionBin, $wrapper)) {
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing installed binary: $path" }
   Write-Host ("SHA256 {0}  {1}" -f (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash, (Split-Path -Leaf $path))
 }
 Push-Location $workDir
 try {
-  & $env:GENTLE_CC_BIN version
+  & $companionBin version
   Assert-Exit 'companion version'
   & $wrapper install --preset full-gentleman
   Assert-Exit 'wrapper install'
