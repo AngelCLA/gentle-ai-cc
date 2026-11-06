@@ -1,0 +1,32 @@
+name: Linux published companion E2E
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-published-companion:
+    name: Linux published release smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out the selected revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Run offline smoke-harness tests
+        shell: bash
+        run: |
+          python3 tests/test_linux_release_workflow.py
+          python3 tests/test_engram_mcp_smoke.py
+      - name: Exercise published wrapper, companion, MCP and skill artifacts
+        shell: pwsh
+        run: ./tests/companion-e2e.ps1

@@ -312,6 +312,28 @@ bytes "$GENTLE_CC_DEST/gentle-cc" "$F/new-wrapper"
 empty_stage
 passed=$((passed + 1))
 
+# Asset names are literal, including SemVer build metadata and binary markers.
+(
+  version='1.0.0+build.1'
+  asset="gentle-ai-cc_${version}_${os}_${arch}${ext}"
+  wrapper_asset="gentle-cc_${version}_${os}_${arch}${ext}"
+  fixture
+  printf '%s *%s\r\n%s *%s\r\n' "$(hash "$F/new-binary")" "$asset" \
+    "$(hash "$F/new-wrapper")" "$wrapper_asset" > "$F/release/checksums.txt"
+  release --version "$version"
+  eq "$status" 0 'literal build metadata release exit'
+  { release_prefix; success_tail; } > "$F/expected-out"
+  : > "$F/expected-err"; output_is
+  bytes "$GENTLE_CC_DEST/gentle-ai-cc" "$F/new-binary"
+  bytes "$GENTLE_CC_DEST/gentle-cc" "$F/new-wrapper"
+  executable "$GENTLE_CC_DEST/gentle-ai-cc"
+  executable "$GENTLE_CC_DEST/gentle-cc"
+  printf 'checksums.txt\n%s\n%s\n' "$asset" "$wrapper_asset" > "$F/expected-transport"
+  bytes "$TRANSPORT_LOG" "$F/expected-transport"
+  empty_stage
+)
+passed=$((passed + 1))
+
 # Source wrapper must build from this distribution module, never external bytes.
 for external in present absent; do
   fixture

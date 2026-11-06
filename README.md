@@ -2,8 +2,9 @@
 
 Use the **official `gentle-ai` release** for every supported agent *and* use
 **Command Code** (`command-code`), without waiting for upstream to accept a
-Command Code adapter. Release installation needs no gentle-ai source checkout;
-real end-to-end Linux validation remains pending.
+Command Code adapter. Release installation needs no gentle-ai source checkout.
+A user-run Linux amd64 smoke test has now completed; broader Linux distribution
+and architecture coverage remains unverified.
 
 > Command Code support is **not** upstream. Issues #1913 (approved, then
 > `NOT_PLANNED`), #4105 and #5790 were closed under the policy *"we're not
@@ -100,7 +101,7 @@ been published:
 
 | OS / arch packaging targets | Installer / wrapper | Runtime evidence here |
 | --- | --- | --- |
-| Linux amd64 / arm64 | `install.sh` / native Go wrapper | Ubuntu 24.04 hosted public-release E2E passed (run [#42291955712](https://github.com/AngelCLA/gentle-ai-cc/actions/runs/42291955712)); arm64 runtime remains unverified. |
+| Linux amd64 / arm64 | `install.sh` / native Go wrapper | Ubuntu 24.04 hosted public-release E2E passed (run [#42291955712](https://github.com/AngelCLA/gentle-ai-cc/actions/runs/42291955712)); user-run Linux amd64 smoke test also verified release installation and checksums, `install --preset full-gentleman` (21 verification checks), `sync`, and Command Code loading global MCP/skill configuration. Other distributions and arm64 runtime remain unverified. |
 | macOS amd64 / arm64 | `install.sh` / native Go wrapper | Cross-compilation only; Unix runtime not certified. |
 | Windows amd64 / arm64 | `install.ps1` / native Go wrapper | Windows 2022 hosted public-release E2E passed (run [#42291955712](https://github.com/AngelCLA/gentle-ai-cc/actions/runs/42291955712)); arm64 runtime remains unverified. |
 
@@ -405,6 +406,25 @@ Bash and PowerShell here test **installers**, not wrapper runtime dependencies.
 Run those suites independently of the native Go wrapper suite. Historical ODD
 logs record legacy Bash/Python evidence; they are not the current test commands.
 None of these suites certifies the separate future Linux probe.
+
+## Published-release integration checks
+
+`.github/workflows/linux-companion-e2e.yml` runs the published-release E2E on
+`ubuntu-24.04` for pushes to `main`, pull requests targeting `main`, and manual
+dispatch. It uses a disposable runner home, read-only repository
+permissions, and no configured secrets. Network access is unrestricted.
+The test downloads `4.3.1-cc.2` and a checksum-pinned Engram `v3.6.2` binary,
+then runs the companion `install`/`sync`, verifies that the generated MCP
+entry resolves to that checksum-pinned binary, performs an actual Engram MCP
+stdio initialize/list/save/search round-trip against synthetic data in a
+separate temporary data directory, and checks the installed `skill-creator` and
+its local style-guide file. It does not invoke a model: skill checks establish
+artifact presence/content markers, not model adherence. This is Linux amd64
+runner evidence, not a guarantee for every Linux distribution or architecture.
+The existing `.github/workflows/companion-e2e.yml` keeps its separate
+branch-specific/manual Ubuntu and Windows matrix; this change does not expand
+Windows or macOS validation. See [the detailed Linux smoke guide](docs/linux-ci-runtime-smoke.md)
+for the workflow diagram, isolation boundaries, protocol details, and limitations.
 
 ## Publishing a release (for the maintainer)
 
