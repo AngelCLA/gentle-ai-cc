@@ -25,7 +25,7 @@ $env:TMPDIR = $tempDir
 $env:GENTLE_CC_DEST = $binDir
 $env:GENTLE_CC_VERSION = '4.3.1-cc.2'
 $env:GENTLE_CC_REPO = Join-Path $root 'no-source-checkout'
-Remove-Item Env:GENTLE_AI_HOME, Env:GENTLE_CC_SOURCE, Env:GENTLE_CC_REF, Env:GENTLE_CC_OWNER_REPO, Env:GENTLE_CC_BIN, Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+Remove-Item Env:GENTLE_AI_HOME, Env:GENTLE_CC_SOURCE, Env:GENTLE_CC_REF, Env:GENTLE_CC_OWNER_REPO, Env:GH_TOKEN, Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
 
 function Assert-Exit($Description) {
   if ($LASTEXITCODE -ne 0) { throw "$Description failed with exit code $LASTEXITCODE" }
@@ -80,14 +80,22 @@ if ($IsWindows) {
   Assert-Exit 'release installer'
   $suffix = ''
 }
+$companionBin = Join-Path $binDir "gentle-ai-cc$suffix"
 $wrapper = Join-Path $binDir "gentle-cc$suffix"
-foreach ($path in @($env:GENTLE_CC_BIN, $wrapper)) {
+if ($IsWindows) {
+  # Exercise the wrapper's normal sibling lookup on Windows.
+  Remove-Item Env:GENTLE_CC_BIN -ErrorAction SilentlyContinue
+} else {
+  # Preserve the Linux smoke's explicit companion selection.
+  $env:GENTLE_CC_BIN = $companionBin
+}
+foreach ($path in @($companionBin, $wrapper)) {
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing installed binary: $path" }
   Write-Host ("SHA256 {0}  {1}" -f (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash, (Split-Path -Leaf $path))
 }
 Push-Location $workDir
 try {
-  & $env:GENTLE_CC_BIN version
+  & $companionBin version
   Assert-Exit 'companion version'
   & $wrapper install --preset full-gentleman
   Assert-Exit 'wrapper install'
