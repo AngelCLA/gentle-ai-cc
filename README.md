@@ -10,20 +10,20 @@ and architecture coverage remains unverified.
 > `NOT_PLANNED`), #4105 and #5790 were closed under the policy *"we're not
 > accepting new agents for now."* This is a community workaround.
 
-## Native wrapper (published in `4.3.1-cc.2`)
+## Native wrapper (published in `4.3.1-cc.3`)
 
 This distribution ships a standalone Go wrapper: running downloaded native
 binaries requires **neither Python nor Bash nor Go**. Installers still need Bash
 or PowerShell; source builds need Go. The companion remains a separate executable.
 
-`4.3.1-cc.2` is the current native release and the default version in both
+`4.3.1-cc.3` is the current native release and the default version in both
 installers. The older `4.3.1-cc.1` release used a universal Bash wrapper, **not**
 the native asset format described here; `--no-wrapper` remains the explicit
 companion-only path for it and does not upgrade an existing legacy wrapper.
 
-The `4.3.1-cc.2` companion binaries are byte-identical to `4.3.1-cc.1` because the
-companion ref did not change, so the companion still reports `4.3.1-cc.1` from
-`version`; only the wrapper is a new native build.
+The `4.3.1-cc.3` companion binaries are byte-identical to `4.3.1-cc.2` and
+`4.3.1-cc.1` because the companion ref did not change, so the companion still
+reports `4.3.1-cc.1` from `version`; only the wrapper is a new native build.
 
 ## Release install
 
@@ -59,7 +59,7 @@ gentle-cc install --preset full-gentleman   # first time
 gentle-cc sync                              # subsequent
 ```
 
-`GENTLE_CC_VERSION` pins another release; the default is `4.3.1-cc.2`.
+`GENTLE_CC_VERSION` pins another release; the default is `4.3.1-cc.3`.
 `GENTLE_CC_DEST` changes the install directory, not the wrapper's binary lookup:
 for a custom directory, add it to `PATH` and set `GENTLE_CC_BIN` to the installed
 companion's full path.
@@ -201,7 +201,7 @@ or directly against the public release:
 
 ```bash
 ./gentle-cc-install.sh --from-release \
-  https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.2 --version 4.3.1-cc.2
+  https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.3 --version 4.3.1-cc.3
 ```
 
 The directory must contain `checksums.txt`, the matching platform/version binary,
@@ -253,7 +253,7 @@ use the publication recovery described below.
 
 `--ref` selects the source commit/tag (default
 `768e6b213c795f574ee837e3a6ce9b4274ee6280`). `--version` selects the release asset
-version or injected source build version (default `4.3.1-cc.2`); it does not
+version or injected source build version (default `4.3.1-cc.3`); it does not
 select a source ref. See `./gentle-cc-install.sh --help` for options.
 
 Both install `~/.local/bin/gentle-ai-cc` and, unless `--no-wrapper`,
@@ -413,7 +413,7 @@ None of these suites certifies the separate future Linux probe.
 `ubuntu-24.04` for pushes to `main`, pull requests targeting `main`, and manual
 dispatch. It uses a disposable runner home, read-only repository
 permissions, and no configured secrets. Network access is unrestricted.
-The test downloads `4.3.1-cc.2` and a checksum-pinned Engram `v3.6.2` binary,
+The test downloads `4.3.1-cc.3` and a checksum-pinned Engram `v3.6.2` binary,
 then runs the companion `install`/`sync`, verifies that the generated MCP
 entry resolves to that checksum-pinned binary, performs an actual Engram MCP
 stdio initialize/list/save/search round-trip against synthetic data in a
@@ -576,7 +576,7 @@ verify compatibility with a real `sync`.
 | `GENTLE_AI_BIN` | `gentle-ai` | Official binary used by `sync-all`. |
 | `GENTLE_AI_HOME` | Unset | Custom state home unsupported by wrapper mutations; any nonempty value is rejected. |
 | `GENTLE_CC_DEST` | Bash: `~/.local/bin`; PowerShell: `$env:LOCALAPPDATA\gentle-cc` | Installer destination; does not change wrapper lookup or `PATH`. |
-| `GENTLE_CC_VERSION` | `4.3.1-cc.2` | Release tag / build version passed by `install.sh`; release tag in PowerShell. |
+| `GENTLE_CC_VERSION` | `4.3.1-cc.3` | Release tag / build version passed by `install.sh`; release tag in PowerShell. |
 | `GENTLE_CC_SOURCE` | Unset | `install.sh` source Git URL; explicit override before local/remote releases. |
 | `GENTLE_CC_REF` | Pinned commit above | Source ref used by `install.sh` with `GENTLE_CC_SOURCE`; ignored for releases. |
 | `GENTLE_CC_OWNER_REPO` | `AngelCLA/gentle-ai-cc` | GitHub repository for release downloads in `install.sh` / `install.ps1`. |
@@ -604,7 +604,7 @@ verify compatibility with a real `sync`.
 - Official `sync` fails `not supported in MVP`: run any `gentle-cc sync`/`install`
   (it cleans state) or edit `~/.gentle-ai/state.json` manually.
 - `python3 required for shared-state cleanup`: you are running the legacy
-  `4.3.1-cc.1` wrapper, not the native executable. Install `4.3.1-cc.2` or a
+  `4.3.1-cc.1` wrapper, not the native executable. Install `4.3.1-cc.3` or a
   source-built native pair; `--no-wrapper` installs only the companion for the
   legacy release.
 - `cannot clean shared state`: inspect and repair `~/.gentle-ai/state.json`;

@@ -18,7 +18,7 @@ flowchart TD
     B --> C[Checkout with read-only token; do not persist credentials]
     C --> D[Offline structural workflow tests]
     D --> E[Offline fake-server MCP tests]
-    E --> F[Download published companion 4.3.1-cc.2]
+    E --> F[Download published companion 4.3.1-cc.3]
     F --> G[Verify companion and wrapper checksums]
     G --> H[Download Engram 3.6.2 Linux amd64 archive]
     H --> I{Pinned SHA-256 matches?}
@@ -57,7 +57,7 @@ The helper starts the verified Engram executable directly with an argument vecto
 
 ## Published binaries and checksum gates
 
-The companion installer downloads the public `4.3.1-cc.2` release and verifies its companion/wrapper pair against the release checksum manifest before installing. The Linux E2E then downloads Engram `v3.6.2` (`engram_3.6.2_linux_amd64.tar.gz`) and compares the archive SHA-256 to this pinned value before extracting or executing it:
+The companion installer downloads the public `4.3.1-cc.3` release and verifies its companion/wrapper pair against the release checksum manifest before installing. The Linux E2E then downloads Engram `v3.6.2` (`engram_3.6.2_linux_amd64.tar.gz`) and compares the archive SHA-256 to this pinned value before extracting or executing it:
 
 ```text
 3527b7e7e8692fd4aaaf576d331cded19155523cf8b02c2de38744cccb229e89
