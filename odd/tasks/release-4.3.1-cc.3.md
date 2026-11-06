@@ -26,7 +26,7 @@ T2 | S1-S3 | parent | done | All six published `4.3.1-cc.2` companion assets dow
 T3 | S1-S2 | parent | done | `go test ./...` and `go vet ./...` clean; `pwsh tests/installers.ps1` passes; Bash suite reports 77 passing cases plus the expected mutant RED; an isolated `install.ps1` run from `dist/` provisioned engram and context7 MCP entries, 8 skills, and left shared state without `command-code`.
 T4 | S1 | parent | done | Commits `182eea2` (defaults) and `27b7ff0` (tracking) pushed; `origin/chore/release-4.3.1-cc.3` exists.
 T5 | S1-S3 | parent | done | User authenticated `gh` as `AngelCLA`; release published at https://github.com/AngelCLA/gentle-ai-cc/releases/tag/4.3.1-cc.3 targeting `723e0eb` (not draft/prerelease) with 12 binaries plus `checksums.txt`; the published manifest matches local `dist/checksums.txt` byte for byte; notes state the reused-companion provenance; cc.1/cc.2 releases untouched.
-T6 | S2-S3 | parent | pending | Hosted `companion-e2e` proof against the published `4.3.1-cc.3` assets.
+T6 | S2-S3 | parent | done | PR #9 checks passed: Linux run `42307661566` downloaded `4.3.1-cc.3`, logged both cc.3 checksums, passed install/sync assertions and the Engram MCP smoke; Windows run `42307661550` passed the PowerShell fixtures plus install/sync assertions against the public HTTPS download.
 
 ## Log
 
@@ -37,3 +37,5 @@ L4. Version bump applied to nine tracked files; the test suite's help fixture mi
 L5. Companion provenance verified rather than assumed: each downloaded `4.3.1-cc.2` companion matched the published `checksums.txt` entry before being staged as `4.3.1-cc.3`. Wrapper binaries are new builds; companion hashes therefore equal cc.2 by design.
 L6. Local provisioning proof used `install.ps1` against `dist/` with isolated HOME/AppData/XDG and observed `mcpServers.engram`, `mcpServers.context7`, `.commandcode/skills/*/SKILL.md` (8 skills) and a shared state without `command-code`. This is Windows amd64 evidence only; Linux runtime proof comes from the hosted E2E.
 L7. Hosted E2E cannot run before publication because `tests/companion-e2e.ps1` downloads the published tag and asserts a disposable GitHub-hosted runner.
+L8. Published https://github.com/AngelCLA/gentle-ai-cc/releases/tag/4.3.1-cc.3 from commit `723e0eb` after the user authenticated `gh`; the published `checksums.txt` equals the local `dist/checksums.txt` byte for byte and `4.3.1-cc.1`/`4.3.1-cc.2` were left untouched.
+L9. PR #9 checks ran after publication, so the hosted jobs exercised the real cc.3 assets: Linux `42307661566` and Windows `42307661550` both succeeded, with `install`/`sync` asserting AGENTS.md, engram plus context7 MCP entries, installed skills and a shared state without `command-code`.
