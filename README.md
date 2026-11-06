@@ -411,7 +411,8 @@ artifact presence/content markers, not model adherence. This is Linux amd64
 runner evidence, not a guarantee for every Linux distribution or architecture.
 The existing `.github/workflows/companion-e2e.yml` keeps its separate
 branch-specific/manual Ubuntu and Windows matrix; this change does not expand
-Windows or macOS validation.
+Windows or macOS validation. See [the detailed Linux smoke guide](docs/linux-ci-runtime-smoke.md)
+for the workflow diagram, isolation boundaries, protocol details, and limitations.
 
 ## Publishing a release (for the maintainer)
 
