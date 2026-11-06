@@ -25,7 +25,7 @@ T1 | S1 | parent | done | `install.sh`, `install.ps1`, `gentle-cc-install.sh`, `
 T2 | S1-S3 | parent | done | All six published `4.3.1-cc.2` companion assets downloaded and verified against the published manifest (e.g. linux/amd64 `9256b29e...`); six wrappers rebuilt with Go 1.27.0 reproducibly; `dist/checksums.txt` has 12 entries.
 T3 | S1-S2 | parent | done | `go test ./...` and `go vet ./...` clean; `pwsh tests/installers.ps1` passes; Bash suite reports 77 passing cases plus the expected mutant RED; an isolated `install.ps1` run from `dist/` provisioned engram and context7 MCP entries, 8 skills, and left shared state without `command-code`.
 T4 | S1 | parent | done | Commits `182eea2` (defaults) and `27b7ff0` (tracking) pushed; `origin/chore/release-4.3.1-cc.3` exists.
-T5 | S1 | parent | blocked | Publish tag `4.3.1-cc.3` with `gh release create`; `gh` 2.103.3 is installed but no host is authenticated.
+T5 | S1-S3 | parent | done | User authenticated `gh` as `AngelCLA`; release published at https://github.com/AngelCLA/gentle-ai-cc/releases/tag/4.3.1-cc.3 targeting `723e0eb` (not draft/prerelease) with 12 binaries plus `checksums.txt`; the published manifest matches local `dist/checksums.txt` byte for byte; notes state the reused-companion provenance; cc.1/cc.2 releases untouched.
 T6 | S2-S3 | parent | pending | Hosted `companion-e2e` proof against the published `4.3.1-cc.3` assets.
 
 ## Log
