@@ -395,6 +395,24 @@ Run those suites independently of the native Go wrapper suite. Historical ODD
 logs record legacy Bash/Python evidence; they are not the current test commands.
 None of these suites certifies the separate future Linux probe.
 
+## Published-release integration checks
+
+`.github/workflows/linux-companion-e2e.yml` runs the published-release E2E on
+`ubuntu-24.04` for pushes to `main`, pull requests targeting `main`, and manual
+dispatch. It uses a disposable runner home, read-only repository
+permissions, and no configured secrets. Network access is unrestricted.
+The test downloads `4.3.1-cc.2` and a checksum-pinned Engram `v3.6.2` binary,
+then runs the companion `install`/`sync`, verifies that the generated MCP
+entry resolves to that checksum-pinned binary, performs an actual Engram MCP
+stdio initialize/list/save/search round-trip against synthetic data in a
+separate temporary data directory, and checks the installed `skill-creator` and
+its local style-guide file. It does not invoke a model: skill checks establish
+artifact presence/content markers, not model adherence. This is Linux amd64
+runner evidence, not a guarantee for every Linux distribution or architecture.
+The existing `.github/workflows/companion-e2e.yml` keeps its separate
+branch-specific/manual Ubuntu and Windows matrix; this change does not expand
+Windows or macOS validation.
+
 ## Publishing a release (for the maintainer)
 
 These are manual maintainer instructions, not a release performed or authorized
