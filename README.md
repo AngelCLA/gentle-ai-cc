@@ -10,6 +10,17 @@ and architecture coverage remains unverified.
 > `NOT_PLANNED`), #4105 and #5790 were closed under the policy *"we're not
 > accepting new agents for now."* This is a community workaround.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, checks, and pull
+request guidelines.
+
+## License
+
+This repository is licensed under the [MIT License](LICENSE).
+The external gentle-ai companion and any bundled third-party components retain
+their own licenses and notices; this license does not relicense them.
+
 ## Native wrapper (published in `4.3.1-cc.3`)
 
 This distribution ships a standalone Go wrapper: running downloaded native
@@ -429,8 +440,8 @@ for the workflow diagram, isolation boundaries, protocol details, and limitation
 ## Publishing a release (for the maintainer)
 
 These are manual maintainer instructions, not a release performed or authorized
-by this preparation. Licensing, release publication and support commitments are
-not established here.
+by this preparation. Release publication and support commitments are not
+established here. See [License](#license) for this repository's licensing.
 
 1. In the **external gentle-ai companion checkout**, keep the adapter branch
    rebased on its upstream `origin/main` so guidance tracks the official release.
