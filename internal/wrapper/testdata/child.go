@@ -41,11 +41,19 @@ func main() {
 	}
 	fmt.Fprintln(file, filepath.Base(os.Args[0]))
 	file.Close()
-	if value := os.Getenv("FIXTURE_STATE"); value != "" {
+	companion := len(os.Args) > 3 && os.Args[2] == "--agent" && os.Args[3] == "command-code"
+	value := os.Getenv("FIXTURE_STATE")
+	if companion && os.Getenv("FIXTURE_COMPANION_STATE") != "" {
+		value = os.Getenv("FIXTURE_COMPANION_STATE")
+	}
+	if value != "" {
 		if err := os.WriteFile(filepath.Join(home, ".gentle-ai", "state.json"), []byte(value), 0600); err != nil {
 			os.Exit(96)
 		}
 	}
 	code, _ := strconv.Atoi(os.Getenv("FIXTURE_EXIT"))
+	if companion && os.Getenv("FIXTURE_COMPANION_EXIT") != "" {
+		code, _ = strconv.Atoi(os.Getenv("FIXTURE_COMPANION_EXIT"))
+	}
 	os.Exit(code)
 }

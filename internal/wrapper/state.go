@@ -22,6 +22,17 @@ func stateError(err error) int {
 }
 
 func readState(home string) (sharedState, error) {
+	state, err := readStateDocument(home)
+	if err != nil {
+		return sharedState{}, err
+	}
+	return validateAgents(state)
+}
+
+// readStateDocument validates the complete object and locates the effective
+// owned field without accepting its schema. Only failed-child recovery uses it
+// directly; normal readers must continue through readState.
+func readStateDocument(home string) (sharedState, error) {
 	path := filepath.Join(home, ".gentle-ai", "state.json")
 	file, err := os.Open(path)
 	if os.IsNotExist(err) {
@@ -80,8 +91,12 @@ func readState(home string) (sharedState, error) {
 		}
 		return sharedState{}, err
 	}
+	return state, nil
+}
+
+func validateAgents(state sharedState) (sharedState, error) {
 	if state.end > 0 {
-		raw := data[state.start:state.end]
+		raw := state.data[state.start:state.end]
 		var items []json.RawMessage
 		invalid := fmt.Errorf("installed_agents must be a list of strings")
 		if len(raw) == 0 || raw[0] != '[' || json.Unmarshal(raw, &items) != nil {
@@ -119,16 +134,41 @@ func cleanState(home string) error {
 	if err != nil {
 		return err
 	}
-	cleaned := make([]string, 0, len(state.agents))
-	for _, agent := range state.agents {
+	cleaned := state.nonCompanionAgents()
+	if len(cleaned) == len(state.agents) {
+		return nil // Includes missing state: preserve bytes, inode and mtime.
+	}
+	return state.replaceAgents(home, cleaned)
+}
+
+func (s sharedState) nonCompanionAgents() []string {
+	cleaned := make([]string, 0, len(s.agents))
+	for _, agent := range s.agents {
 		if !companionAgent(agent) {
 			cleaned = append(cleaned, agent)
 		}
 	}
-	if len(cleaned) == len(state.agents) {
-		return nil // Includes missing state: preserve bytes, inode and mtime.
+	return cleaned
+}
+
+// Recover only an exact null in an otherwise valid post-child document. The
+// caller supplies a validated snapshot taken immediately before the companion.
+func recoverFailedState(home string, before sharedState) (bool, error) {
+	state, err := readStateDocument(home)
+	if err != nil {
+		return false, err
 	}
-	raw, err := json.Marshal(cleaned)
+	if state.end == 0 || string(state.data[state.start:state.end]) != "null" {
+		return false, nil
+	}
+	if err := state.replaceAgents(home, before.nonCompanionAgents()); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (state sharedState) replaceAgents(home string, agents []string) error {
+	raw, err := json.Marshal(agents)
 	if err != nil {
 		return err
 	}
