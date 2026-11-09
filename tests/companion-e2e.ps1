@@ -124,7 +124,7 @@ if ($IsLinux) {
   $engramSha256 = '3527b7e7e8692fd4aaaf576d331cded19155523cf8b02c2de38744cccb229e89'
   $engramArchive = Join-Path $tempDir "engram_${engramVersion}_linux_amd64.tar.gz"
   $engramUrl = "https://github.com/Gentleman-Programming/engram/releases/download/v$engramVersion/engram_${engramVersion}_linux_amd64.tar.gz"
-  $null = Invoke-WebRequest -Uri $engramUrl -OutFile $engramArchive -UseBasicParsing
+  $null = Invoke-WebRequest -Uri $engramUrl -OutFile $engramArchive -UseBasicParsing -MaximumRetryCount 3 -RetryIntervalSec 2
   $actualEngramHash = (Get-FileHash -LiteralPath $engramArchive -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actualEngramHash -cne $engramSha256) {
     throw "Engram $engramVersion archive checksum mismatch: $actualEngramHash"

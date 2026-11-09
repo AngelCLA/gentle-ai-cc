@@ -40,6 +40,12 @@ class LinuxCompanionWorkflowTests(unittest.TestCase):
         self.assertIn("Engram MCP runtime smoke", e2e)
         self.assertIn("Engram MCP command does not resolve to the checksum-verified test binary", e2e)
 
+    def test_published_release_downloads_retry_transient_errors(self):
+        installer = (ROOT / "gentle-cc-install.sh").read_text(encoding="utf-8")
+        e2e = (ROOT / "tests/companion-e2e.ps1").read_text(encoding="utf-8")
+        self.assertIn("curl -fsSL --retry 3 --retry-delay 2", installer)
+        self.assertIn("-MaximumRetryCount 3 -RetryIntervalSec 2", e2e)
+
     def test_e2e_checks_expected_skill_and_local_reference_artifacts(self):
         e2e = (ROOT / "tests/companion-e2e.ps1").read_text(encoding="utf-8")
         self.assertIn("skill-creator", e2e)

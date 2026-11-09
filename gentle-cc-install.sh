@@ -179,14 +179,14 @@ publish_artifacts() {
 install_release() {
   command -v curl >/dev/null 2>&1 || die "curl required for --from-release"
   base="${SRC%/}"
-  curl -fsSL "$base/checksums.txt" -o "$tmp/checksums.txt" || die "checksums.txt download failed"
+  curl -fsSL --retry 3 --retry-delay 2 "$base/checksums.txt" -o "$tmp/checksums.txt" || die "checksums.txt download failed"
   echo "downloading $asset ..."
-  curl -fsSL "$base/$asset" -o "$tmp/$asset" || die "download failed: $base/$asset"
+  curl -fsSL --retry 3 --retry-delay 2 "$base/$asset" -o "$tmp/$asset" || die "download failed: $base/$asset"
   verify_against "$tmp/$asset" "$asset" "$tmp/checksums.txt"
 
   if [ "$NO_WRAPPER" = "0" ]; then
     echo "downloading gentle-cc wrapper ..."
-    curl -fsSL "$base/$wrapper_asset" -o "$tmp/$WRAPPER_NAME" || die "wrapper download failed"
+    curl -fsSL --retry 3 --retry-delay 2 "$base/$wrapper_asset" -o "$tmp/$WRAPPER_NAME" || die "wrapper download failed"
     verify_against "$tmp/$WRAPPER_NAME" "$wrapper_asset" "$tmp/checksums.txt"
   fi
 
