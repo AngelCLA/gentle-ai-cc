@@ -315,7 +315,7 @@ func TestHelpUnknownAndBuildFailure(t *testing.T) {
 	f := setup(t)
 	for _, route := range []string{"help", "--help", "-h", "unknown"} {
 		r := f.run(route, "--agent=pi")
-		if r.code != 0 || r.err != "" || !strings.Contains(r.out, "standalone") || !strings.Contains(r.out, "gentle-cc sync") || !strings.Contains(r.out, "sync/sync-all never add it") || !strings.Contains(r.out, "gentle-ai-branding.ts") {
+		if r.code != 0 || r.err != "" || !strings.Contains(r.out, "standalone") || !strings.Contains(r.out, "gentle-cc sync") || !strings.Contains(r.out, "sync/sync-all never add it") || !strings.Contains(r.out, "gentle-ai-branding.ts") || !strings.Contains(r.out, "Failed companion null installed_agents is recovered") || !strings.Contains(r.out, "Pre-existing null, successful-child null and other invalid state remain errors.") {
 			t.Fatal(r)
 		}
 	}

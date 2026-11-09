@@ -36,6 +36,9 @@ The persistent OS lock file must never be removed, even when idle.
 Lock directories, symlinks/reparse points and hardlinks are rejected.
 A guardian holds the lock through child completion and shared-state cleanup,
 including when the invoking process is terminated. Do not run direct binaries concurrently.
+Failed companion null installed_agents is recovered from validated pre-child agents,
+with a warning; other post-child state and the child failure status are preserved.
+Pre-existing null, successful-child null and other invalid state remain errors.
 Companion help (--help/-help/-h/--h) anywhere skips cleanup and locking.
 sync-all only skips for unambiguous --help/-h; its official parser is unverified.
 Pure -dry-run/--dry-run sequences: last value wins (Go booleans; bare = true).
@@ -246,11 +249,33 @@ func (c config) operation(args []string, signals *operationSignals, mutation boo
 	if rc := c.ensure(signals); rc != 0 {
 		return rc
 	}
+	var before sharedState
+	if mutation {
+		var err error
+		// In sync-all this is after official sync: do not roll its agent list back.
+		before, err = readState(c.home)
+		if err != nil {
+			return stateError(err)
+		}
+	}
 	argv := append([]string{command, "--agent", "command-code"}, flags...)
 	rc := run(exec.Command(c.bin, argv...), signals)
 	if mutation {
-		if err := cleanState(c.home); err != nil {
-			return stateError(err)
+		recovered := false
+		if rc != 0 {
+			var err error
+			recovered, err = recoverFailedState(c.home, before)
+			if err != nil {
+				return stateError(err)
+			}
+			if recovered {
+				fmt.Fprintln(os.Stderr, "gentle-cc: warning: recovered installed_agents from pre-companion state after companion failure; other state preserved")
+			}
+		}
+		if !recovered {
+			if err := cleanState(c.home); err != nil {
+				return stateError(err)
+			}
 		}
 	}
 	if mutation && rc == 0 && brandingRequested(args) {

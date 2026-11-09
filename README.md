@@ -45,6 +45,10 @@ reports `4.3.1-cc.1` from `version`; only the wrapper is a new native build.
 - The native wrapper adds optional Gentle AI decoration automatically after a
   successful mutating `install` and shared-state cleanup. The original Command
   Code banner remains; `sync` and `sync-all` do not restore a removed mod.
+- After a failed mutating companion leaves `installed_agents: null`, the wrapper
+  restores the validated pre-companion non-Command-Code agent list, preserves
+  other post-child state, warns, and retains the companion's failure status.
+  Pre-existing null and other invalid state remain rejected.
 - Installer and release-packaging defaults advance to `4.3.1-cc.4`. The companion
   source pin is unchanged. Companion assets reused from a previous verified
   release retain their embedded version; record artifact provenance when publishing.
@@ -588,6 +592,27 @@ succeeds; a cleanup failure returns status 1 instead. An official sync failure
 returns status 1 with `gentle-cc: official sync failed`, without running the
 companion or cleanup.
 
+There is one narrow recovery for mutating `install`, `sync`, and `sync-all`:
+if the companion fails and leaves a valid JSON object whose effective
+`installed_agents` field is exactly `null`, the wrapper replaces only that value
+with the validated list captured immediately before the companion, excluding
+`command-code` and `commandcode` but retaining other agents and duplicates.
+Missing pre-companion state or an absent field yields `[]`. For `sync-all`, the
+snapshot is taken **after** successful official sync, so its valid agent-list
+updates are retained. All unrelated post-child JSON bytes and permission bits
+are preserved using the same atomic replacement as ordinary cleanup. Successful
+recovery retains the companion's nonzero status and prints exactly:
+
+```text
+gentle-cc: warning: recovered installed_agents from pre-companion state after companion failure; other state preserved
+```
+
+This repairs only the shared agent-list field, not a failed installation or a
+transaction rollback. Pre-existing null, null after a successful companion,
+malformed JSON, mixed-type lists and other invalid schemas are still rejected;
+failed recovery returns the ordinary cleanup error/status 1. Help/read-only calls
+do not recover state. Direct/concurrent binary writes remain unsupported.
+
 A persistent regular single-link file at `~/.gentle-ai/gentle-cc.lock`, locked
 with native `flock` on Linux/macOS or `LockFileEx` on Windows, serializes wrapper
 mutations, including the **entire** `sync-all` operation and cleanup. A held lock
@@ -612,7 +637,8 @@ lock even for a signal-ignoring writer. Normal guardian exit closes the lock
 without deleting its file. Killing the guardian or the entire process tree can
 interrupt cleanup; OS lock release is not a transaction or automatic state repair.
 Daemonized/background writers are outside this guarantee: do not use binaries
-that leave background writers. No recovery or lock migration runs automatically.
+that leave background writers. Apart from the targeted failed-companion null-field
+recovery above, no state recovery or lock migration runs automatically.
 
 **Do not run direct official or companion writes simultaneously with the
 wrapper or each other.** Neither external binary honors this wrapper-only lock;
