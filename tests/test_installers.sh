@@ -67,15 +67,16 @@ fixture() {
   cat > "$F/tools/curl" <<'TOOL'
 #!/usr/bin/env bash
 set -euo pipefail
-[ "$#" = 4 ] && [ "$1" = -fsSL ] && [ "$3" = -o ] || exit 90
-case "$2" in
-    file://*) source=${2#file://} ;;
-    https://github.com/*/releases/download/*/*) source="$FIXTURE_RELEASE/${2##*/}" ;;
-    *) exit 91 ;;
-  esac
+[ "$#" = 8 ] && [ "$1" = -fsSL ] && [ "$2" = --retry ] && [ "$3" = 3 ] &&
+ [ "$4" = --retry-delay ] && [ "$5" = 2 ] && [ "$7" = -o ] || exit 90
+case "$6" in
+   file://*) source=${6#file://} ;;
+   https://github.com/*/releases/download/*/*) source="$FIXTURE_RELEASE/${6##*/}" ;;
+   *) exit 91 ;;
+ esac
 printf '%s\n' "${source##*/}" >> "$TRANSPORT_LOG"
 [ -f "$source" ] || exit 22
-cp "$source" "$4"
+cp "$source" "$8"
 TOOL
   cat > "$F/tools/git" <<'TOOL'
 #!/usr/bin/env bash
