@@ -309,6 +309,54 @@ gentle-cc doctor  [args]    # run doctor with the companion binary
 gentle-cc sync-all [args]   # official sync for other agents + Command Code
 ```
 
+### Gentle AI decoration (source-built wrapper)
+
+The wrapper built from this checkout adds a small textual rose and **Gentle AI**
+label above Command Code's input after a successful mutating `gentle-cc install`
+and successful shared-state cleanup. This is not part of the already published
+`4.3.1-cc.3` wrapper. It installs a self-contained loose mod at
+`~/.commandcode/mods/gentle-ai-branding.ts` (Windows: the same path below the
+wrapper's HOME/USERPROFILE). The companion itself is unchanged.
+
+This is additive decoration, **not a replacement for the original Command Code
+banner**, a full theme, or evidence that any tool has run. It uses the
+[documented mods UI widget API](https://commandcode.ai/docs/mods), with
+`placement: 'above-editor'` and an array of text nodes from `render`. The mod
+exports the documented default factory using plain JavaScript syntax, with no
+runtime package imports. A deterministic Node mock checks the installed factory
+when Node is available in development; otherwise tests check its structural form.
+Neither check certifies the actual Command Code loader. That API is
+experimental; rendering and compatibility with your installed Command Code
+version require a real-client check. The static mod has no hooks, network
+requests, tool calls, or settings changes.
+
+Automatic installation happens **only on install**. `sync` and `sync-all` never
+create or refresh it. Delete `~/.commandcode/mods/gentle-ai-branding.ts` to remove
+the decoration; later syncs respect that decision. Running a new mutating
+`install` opts in again if the file is absent. Existing byte-identical content is
+a no-op; an existing custom/modified file, directory or link is never replaced.
+Help and any argument containing `dry-run` skip branding, even with other
+options, after `--`, or with `=false`. This extra safeguard does not change the
+existing conservative shared-state cleanup/locking classification below.
+
+Branding runs under the existing guardian lock and skips an already cancelled
+operation. It opens checked directory handles, rejects linked or non-directory
+components (including HOME ancestors), and creates the file exclusively, never
+truncating an existing path. A linked home must be replaced with a real path in
+HOME to enable decoration. A conflict or I/O failure prints:
+
+```text
+gentle-cc: warning: Gentle AI branding not installed; existing or unsafe path preserved (see README)
+```
+
+This warning does not change the child's successful exit or undo cleanup. Newly
+created configuration directories or a partial new mod can remain after an I/O
+failure or interruption; inspect them before any separately authorized manual
+repair. Exclusive creation prevents replacement, but is not crash-atomic
+publication: a concurrent client can briefly see an incomplete newly created
+file. Use a locally controlled home and restart Command Code after installation
+or removal if it does not reload mods automatically.
+
 ### Wrapper-owned agent selection
 
 `sync`, `install`, and `sync-all` reject every user token named `--agent`,

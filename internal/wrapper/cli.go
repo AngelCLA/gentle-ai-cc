@@ -40,7 +40,11 @@ Companion help (--help/-help/-h/--h) anywhere skips cleanup and locking.
 sync-all only skips for unambiguous --help/-h; its official parser is unverified.
 Pure -dry-run/--dry-run sequences: last value wins (Go booleans; bare = true).
 False, boundaries, unknown options or possible values use preflight/lock/cleanup.
-See README for shared-state limitations and stale-lock recovery.
+Successful mutating install adds a static Gentle AI rose mod above the editor.
+The original Command Code banner stays. Existing mods are never overwritten.
+Help or any potential dry-run token skips branding; sync/sync-all never add it.
+Remove ~/.commandcode/mods/gentle-ai-branding.ts to opt out until next install.
+See README for experimental mod API, shared-state limitations and recovery.
 
 Env:
   GENTLE_CC_REPO   branch checkout        (default ~/dev/gentle-ai)
@@ -248,6 +252,9 @@ func (c config) operation(args []string, signals *operationSignals, mutation boo
 		if err := cleanState(c.home); err != nil {
 			return stateError(err)
 		}
+	}
+	if mutation && rc == 0 && brandingRequested(args) {
+		c.brand(signals)
 	}
 	return rc
 }
