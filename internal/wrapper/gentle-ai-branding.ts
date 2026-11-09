@@ -3,6 +3,6 @@
 export default function (cmd) {
   cmd.ui.widget({
     placement: "above-editor",
-    render: () => ["Powered by Gentle AI"],
+    render: () => ["\u001b[38;2;255;121;198mPowered by Gentle AI\u001b[0m"],
   });
 }

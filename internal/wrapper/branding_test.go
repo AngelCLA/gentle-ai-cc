@@ -93,8 +93,8 @@ assert.equal(widgets.length, 1);
 assert.deepEqual(Object.keys(widgets[0]).sort(), ['placement', 'render']);
 assert.equal(widgets[0].placement, 'above-editor');
 assert.equal(typeof widgets[0].render, 'function');
-assert.deepEqual(widgets[0].render(), ["Powered by Gentle AI"]);
-assert.deepEqual(widgets[0].render(), ["Powered by Gentle AI"]);
+assert.deepEqual(widgets[0].render(), ["\u001b[38;2;255;121;198mPowered by Gentle AI\u001b[0m"]);
+assert.deepEqual(widgets[0].render(), ["\u001b[38;2;255;121;198mPowered by Gentle AI\u001b[0m"]);
 `
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
