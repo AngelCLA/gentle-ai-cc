@@ -141,7 +141,7 @@ try {
     $fixture = Join-Path $root $public.Name
     New-Item -ItemType Directory -Path $fixture | Out-Null
     Copy-Item -LiteralPath $source -Destination (Join-Path $fixture "install.ps1")
-    $version = if ($public.Default) { "4.3.1-cc.4" } else { "v9" }
+    $version = if ($public.Default) { "4.3.1-cc.5" } else { "v9" }
     if ($public.Default) { Remove-Item Env:GENTLE_CC_VERSION -ErrorAction SilentlyContinue }
     else { $env:GENTLE_CC_VERSION = $version }
     $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"

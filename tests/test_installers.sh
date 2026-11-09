@@ -67,15 +67,16 @@ fixture() {
   cat > "$F/tools/curl" <<'TOOL'
 #!/usr/bin/env bash
 set -euo pipefail
-[ "$#" = 4 ] && [ "$1" = -fsSL ] && [ "$3" = -o ] || exit 90
-case "$2" in
-    file://*) source=${2#file://} ;;
-    https://github.com/*/releases/download/*/*) source="$FIXTURE_RELEASE/${2##*/}" ;;
-    *) exit 91 ;;
-  esac
+[ "$#" = 8 ] && [ "$1" = -fsSL ] && [ "$2" = --retry ] && [ "$3" = 3 ] &&
+ [ "$4" = --retry-delay ] && [ "$5" = 2 ] && [ "$7" = -o ] || exit 90
+case "$6" in
+   file://*) source=${6#file://} ;;
+   https://github.com/*/releases/download/*/*) source="$FIXTURE_RELEASE/${6##*/}" ;;
+   *) exit 91 ;;
+ esac
 printf '%s\n' "${source##*/}" >> "$TRANSPORT_LOG"
 [ -f "$source" ] || exit 22
-cp "$source" "$4"
+cp "$source" "$8"
 TOOL
   cat > "$F/tools/git" <<'TOOL'
 #!/usr/bin/env bash
@@ -173,11 +174,11 @@ installer_help_expected() {
 #       The pinned source currently requires Go 1.25.10 or newer.
 #       A missing distribution Go module is an error unless --no-wrapper is given.
 #       Native assets: gentle-cc_<version>_<os>_<arch>[.exe], not legacy gentle-cc.
-#       4.3.1-cc.4 is the native release; 4.3.1-cc.1 is the legacy wrapper.
+#       4.3.1-cc.5 is the native release default; 4.3.1-cc.1 is the legacy wrapper.
 #
 # Options:
 #   --ref REF       Source commit/tag (default the pinned commit).
-#   --version V     Release asset version / source build version (default 4.3.1-cc.4).
+#   --version V     Release asset version / source build version (default 4.3.1-cc.5).
 #   --no-wrapper    Install only the binary; leave any existing wrapper unchanged.
 #   --sha-only      Still installs; suppresses final next-step guidance only.
 # GENTLE_CC_DEST overrides the default destination below; it does not update PATH.
@@ -220,7 +221,7 @@ installer_help_checks() {
 # Transport/build fixtures are platform-independent bytes. Pin the Unix matrix;
 # a separate Windows selection case below checks native executable names.
 os=linux; arch=amd64; ext=''
-version='4.3.1-cc.4'
+version='4.3.1-cc.5'
 asset="gentle-ai-cc_${version}_${os}_${arch}${ext}"
 wrapper_asset="gentle-cc_${version}_${os}_${arch}${ext}"
 installer_help_checks

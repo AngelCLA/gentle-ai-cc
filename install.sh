@@ -10,14 +10,14 @@
 # There is no automatic source fallback if release selection/download fails.
 #
 # Environment:
-#   GENTLE_CC_VERSION   release tag/prefix (default 4.3.1-cc.4)
+#   GENTLE_CC_VERSION   release tag/prefix (default 4.3.1-cc.5)
 #   GENTLE_CC_DEST      install dir        (default ~/.local/bin)
 #   GENTLE_CC_SOURCE    git URL to build from instead of a release
 #   GENTLE_CC_REF       commit/tag for GENTLE_CC_SOURCE
 #   GENTLE_CC_OWNER_REPO owner/repo        (default AngelCLA/gentle-ai-cc)
 set -euo pipefail
 
-VERSION="${GENTLE_CC_VERSION:-4.3.1-cc.4}"
+VERSION="${GENTLE_CC_VERSION:-4.3.1-cc.5}"
 OWNER_REPO="${GENTLE_CC_OWNER_REPO:-AngelCLA/gentle-ai-cc}"
 here="$(cd "$(dirname "$0")" && pwd)"
 

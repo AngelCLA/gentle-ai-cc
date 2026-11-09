@@ -13,14 +13,14 @@
 #   gentle-ai-cc_<V>_<os>_<arch>[.exe]   companion binaries (6 platforms)
 #   gentle-cc_<V>_<os>_<arch>[.exe]      native wrappers (6 platforms)
 # --wrapper PATH is obsolete: no universal Bash wrapper override is accepted.
-# 4.3.1-cc.4 is the current native release; 4.3.1-cc.1 is the legacy wrapper.
+# 4.3.1-cc.5 is the native release default; 4.3.1-cc.1 is the legacy wrapper.
 # The companion module is built from --repo; when that ref did not change, the
 # previously verified companion assets may be republished under the new version.
 #   checksums.txt                        sha256 of every artifact above
 set -euo pipefail
 
 REPO="${GENTLE_CC_REPO:-$HOME/dev/gentle-ai}"
-VERSION="4.3.1-cc.4"
+VERSION="4.3.1-cc.5"
 OUT="$(pwd)/dist"
 DISTRIBUTION="$(cd "$(dirname "$0")" && pwd)"
 

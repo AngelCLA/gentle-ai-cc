@@ -17,11 +17,11 @@
 #       The pinned source currently requires Go 1.25.10 or newer.
 #       A missing distribution Go module is an error unless --no-wrapper is given.
 #       Native assets: gentle-cc_<version>_<os>_<arch>[.exe], not legacy gentle-cc.
-#       4.3.1-cc.4 is the native release; 4.3.1-cc.1 is the legacy wrapper.
+#       4.3.1-cc.5 is the native release default; 4.3.1-cc.1 is the legacy wrapper.
 #
 # Options:
 #   --ref REF       Source commit/tag (default the pinned commit).
-#   --version V     Release asset version / source build version (default 4.3.1-cc.4).
+#   --version V     Release asset version / source build version (default 4.3.1-cc.5).
 #   --no-wrapper    Install only the binary; leave any existing wrapper unchanged.
 #   --sha-only      Still installs; suppresses final next-step guidance only.
 # GENTLE_CC_DEST overrides the default destination below; it does not update PATH.
@@ -37,7 +37,7 @@ DEST_DIR="${GENTLE_CC_DEST:-$HOME/.local/bin}"
 BIN_NAME="gentle-ai-cc"
 WRAPPER_NAME="gentle-cc"
 PINNED_REF="768e6b213c795f574ee837e3a6ce9b4274ee6280"
-VERSION="4.3.1-cc.4"
+VERSION="4.3.1-cc.5"
 
 MODE=""; SRC=""; REF="$PINNED_REF"; NO_WRAPPER=0; SHA_ONLY=0
 
@@ -179,14 +179,14 @@ publish_artifacts() {
 install_release() {
   command -v curl >/dev/null 2>&1 || die "curl required for --from-release"
   base="${SRC%/}"
-  curl -fsSL "$base/checksums.txt" -o "$tmp/checksums.txt" || die "checksums.txt download failed"
+  curl -fsSL --retry 3 --retry-delay 2 "$base/checksums.txt" -o "$tmp/checksums.txt" || die "checksums.txt download failed"
   echo "downloading $asset ..."
-  curl -fsSL "$base/$asset" -o "$tmp/$asset" || die "download failed: $base/$asset"
+  curl -fsSL --retry 3 --retry-delay 2 "$base/$asset" -o "$tmp/$asset" || die "download failed: $base/$asset"
   verify_against "$tmp/$asset" "$asset" "$tmp/checksums.txt"
 
   if [ "$NO_WRAPPER" = "0" ]; then
     echo "downloading gentle-cc wrapper ..."
-    curl -fsSL "$base/$wrapper_asset" -o "$tmp/$WRAPPER_NAME" || die "wrapper download failed"
+    curl -fsSL --retry 3 --retry-delay 2 "$base/$wrapper_asset" -o "$tmp/$WRAPPER_NAME" || die "wrapper download failed"
     verify_against "$tmp/$WRAPPER_NAME" "$wrapper_asset" "$tmp/checksums.txt"
   fi
 

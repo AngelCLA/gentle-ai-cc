@@ -21,17 +21,17 @@ This repository is licensed under the [MIT License](LICENSE).
 The external gentle-ai companion and any bundled third-party components retain
 their own licenses and notices; this license does not relicense them.
 
-## Native wrapper (`4.3.1-cc.4` release preparation)
+## Native wrapper (`4.3.1-cc.5` release)
 
 This distribution ships a standalone Go wrapper: running downloaded native
 binaries requires **neither Python nor Bash nor Go**. Installers still need Bash
 or PowerShell; source builds need Go. The companion remains a separate executable.
 
-`4.3.1-cc.4` is the prepared native release and the default version in both
-installers. Until it is published, use `GENTLE_CC_VERSION=4.3.1-cc.3` for the
-already published release (without Gentle AI branding). Published-release E2E
-scripts, workflows and their detailed guide intentionally remain pinned to `.3`
-until `.4` assets are public, avoiding a circular dependency in pre-release PR CI.
+`4.3.1-cc.5` is the current published native release and the default version in
+both installers. The published `.4` release remains unchanged and can still be
+installed with `GENTLE_CC_VERSION=4.3.1-cc.4` for the original Gentle AI
+decoration. Published-release E2E scripts, workflows and their detailed guide
+intentionally remain pinned to `.3`; they do not validate `.4` or `.5` branding.
 The older `4.3.1-cc.1` release used a universal Bash wrapper, **not**
 the native asset format described here; `--no-wrapper` remains the explicit
 companion-only path for it and does not upgrade an existing legacy wrapper.
@@ -40,20 +40,38 @@ The `4.3.1-cc.3` companion binaries are byte-identical to `4.3.1-cc.2` and
 `4.3.1-cc.1` because the companion ref did not change, so the companion still
 reports `4.3.1-cc.1` from `version`; only the wrapper is a new native build.
 
-### Release notes: `4.3.1-cc.4` (not yet published)
+### Unreleased changes
 
-- The native wrapper adds optional Gentle AI decoration automatically after a
-  successful mutating `install` and shared-state cleanup. The original Command
-  Code banner remains; `sync` and `sync-all` do not restore a removed mod.
 - After a failed mutating companion leaves `installed_agents: null`, the wrapper
   restores the validated pre-companion non-Command-Code agent list, preserves
   other post-child state, warns, and retains the companion's failure status.
   Pre-existing null and other invalid state remain rejected.
-- Installer and release-packaging defaults advance to `4.3.1-cc.4`. The companion
-  source pin is unchanged. Companion assets reused from a previous verified
-  release retain their embedded version; record artifact provenance when publishing.
-- Branding is new in `.4`, not the published `.3` wrapper. See
-  [Gentle AI decoration](#gentle-ai-decoration-431-cc4) for opt-out and safety details.
+
+### Release notes: `4.3.1-cc.5` (published)
+
+- Newly created decoration uses **Powered by Gentle AI** in pink (RGB
+  `255,121,198`), using supported ANSI styling in the documented TUI widget API.
+  Styles reset after the label; the original Command Code banner remains.
+- Existing mod files are not overwritten. Existing installations require an
+  explicit manual edit to adopt the pink label; upgrading the wrapper or running
+  `sync` does not update them. See [Gentle AI decoration](#gentle-ai-decoration)
+  for the exact render string and safety details.
+- Installer and release-packaging defaults advance to `4.3.1-cc.5`. The companion
+  source pin is unchanged. Reused verified companion assets retain their embedded
+  version; their source release and checksums are recorded in `checksums.txt`.
+- Published from tag `4.3.1-cc.5` at commit `38963bf`. All twelve binaries were
+  downloaded back from the public release and verified against `checksums.txt`.
+
+### Release notes: `4.3.1-cc.4` (published)
+
+- Introduced optional Gentle AI decoration after a successful mutating `install`
+  and shared-state cleanup: a textual rose and Gentle AI label, without replacing
+  the original Command Code banner. `sync` and `sync-all` do not restore a removed mod.
+- Advanced installer and release-packaging defaults to `4.3.1-cc.4` without
+  changing the companion source pin. Reused companion assets retain their embedded
+  version and their release provenance must be preserved.
+- Branding first appeared in `.4`, not the published `.3` wrapper. The `.5`
+  release does not replace or modify published `.4` assets.
 
 ## Release install
 
@@ -89,7 +107,7 @@ gentle-cc install --preset full-gentleman   # first time
 gentle-cc sync                              # subsequent
 ```
 
-`GENTLE_CC_VERSION` pins another release; the default is `4.3.1-cc.4`.
+`GENTLE_CC_VERSION` pins another release; the default is published `4.3.1-cc.5`.
 `GENTLE_CC_DEST` changes the install directory, not the wrapper's binary lookup:
 for a custom directory, add it to `PATH` and set `GENTLE_CC_BIN` to the installed
 companion's full path.
@@ -231,7 +249,7 @@ or directly against the public release:
 
 ```bash
 ./gentle-cc-install.sh --from-release \
-  https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.4 --version 4.3.1-cc.4
+  https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.5 --version 4.3.1-cc.5
 ```
 
 The directory must contain `checksums.txt`, the matching platform/version binary,
@@ -283,7 +301,7 @@ use the publication recovery described below.
 
 `--ref` selects the source commit/tag (default
 `768e6b213c795f574ee837e3a6ce9b4274ee6280`). `--version` selects the release asset
-version or injected source build version (default `4.3.1-cc.4`); it does not
+version or injected source build version (default `4.3.1-cc.5`); it does not
 select a source ref. See `./gentle-cc-install.sh --help` for options.
 
 Both install `~/.local/bin/gentle-ai-cc` and, unless `--no-wrapper`,
@@ -328,12 +346,13 @@ gentle-cc doctor  [args]    # run doctor with the companion binary
 gentle-cc sync-all [args]   # official sync for other agents + Command Code
 ```
 
-### Gentle AI decoration (`4.3.1-cc.4`)
+### Gentle AI decoration
 
-The `.4` wrapper (also buildable from this checkout) adds a small textual rose and **Gentle AI**
-label above Command Code's input after a successful mutating `gentle-cc install`
-and successful shared-state cleanup. This is not part of the already published
-`4.3.1-cc.3` wrapper. It installs a self-contained loose mod at
+The published `.4` wrapper introduced a textual rose and Gentle AI label; the
+published `.5` wrapper creates a pink **Powered by Gentle AI** label above Command
+Code's input after a successful mutating `gentle-cc install` and successful
+shared-state cleanup. Decoration is not part of the published `.3` wrapper.
+It installs a self-contained loose mod at
 `~/.commandcode/mods/gentle-ai-branding.ts` (Windows: the same path below the
 wrapper's HOME/USERPROFILE). The companion itself is unchanged.
 
@@ -342,7 +361,22 @@ banner**, a full theme, or evidence that any tool has run. It uses the
 [documented mods UI widget API](https://commandcode.ai/docs/mods), with
 `placement: 'above-editor'` and an array of text nodes from `render`. The mod
 exports the documented default factory using plain JavaScript syntax, with no
-runtime package imports. A deterministic Node mock checks the installed factory
+runtime package imports. The `.5` widget uses RGB pink ANSI styling supported by
+the Command Code TUI in its rendered string, with `\u001b[0m` resetting styles
+immediately after the label:
+
+```javascript
+render: () => ["\u001b[38;2;255;121;198mPowered by Gentle AI\u001b[0m"],
+```
+
+For an existing installation, explicitly edit the `render` property in
+`~/.commandcode/mods/gentle-ai-branding.ts` to match the string above if you want
+the pink label. Inspect and preserve any personal customizations; the wrapper
+never overwrites an existing mod file, including the original `.4` decoration.
+Upgrading the wrapper does not migrate the mod, and neither `sync` nor `sync-all`
+updates it. Restart Command Code if it does not reload the edited mod.
+
+A deterministic Node mock checks the installed factory
 when Node is available in development; otherwise tests check its structural form.
 Neither check certifies the actual Command Code loader. That API is
 experimental; rendering and compatibility with your installed Command Code
@@ -491,10 +525,10 @@ None of these suites certifies the separate future Linux probe.
 `ubuntu-24.04` for pushes to `main`, pull requests targeting `main`, and manual
 dispatch. It uses a disposable runner home, read-only repository
 permissions, and no configured secrets. Network access is unrestricted.
-The test intentionally still downloads published `4.3.1-cc.3`, not the prepared
-`.4` installer default, until `.4` is published; this avoids requiring unpublished
-assets for PR CI. It downloads a checksum-pinned Engram `v3.6.2` binary,
-then runs the companion `install`/`sync`, verifies that the generated MCP
+The test intentionally still downloads published `4.3.1-cc.3`, not the `.5`
+installer default. Its existing API and fixtures are unchanged; it does not
+certify the `.4` decoration or `.5` pink widget. It downloads a
+checksum-pinned Engram `v3.6.2` binary, then runs the companion `install`/`sync`, verifies that the generated MCP
 entry resolves to that checksum-pinned binary, performs an actual Engram MCP
 stdio initialize/list/save/search round-trip against synthetic data in a
 separate temporary data directory, and checks the installed `skill-creator` and
@@ -508,9 +542,9 @@ for the workflow diagram, isolation boundaries, protocol details, and limitation
 
 ## Publishing a release (for the maintainer)
 
-These are manual maintainer instructions, not a release performed or authorized
-by this preparation. Release publication and support commitments are not
-established here. See [License](#license) for this repository's licensing.
+These are manual maintainer instructions. The published `4.3.1-cc.5` release
+followed them. Release publication and support commitments are not established by
+this document. See [License](#license) for this repository's licensing.
 
 1. In the **external gentle-ai companion checkout**, keep the adapter branch
    rebased on its upstream `origin/main` so guidance tracks the official release.
@@ -678,7 +712,7 @@ verify compatibility with a real `sync`.
 | `GENTLE_AI_BIN` | `gentle-ai` | Official binary used by `sync-all`. |
 | `GENTLE_AI_HOME` | Unset | Custom state home unsupported by wrapper mutations; any nonempty value is rejected. |
 | `GENTLE_CC_DEST` | Bash: `~/.local/bin`; PowerShell: `$env:LOCALAPPDATA\gentle-cc` | Installer destination; does not change wrapper lookup or `PATH`. |
-| `GENTLE_CC_VERSION` | `4.3.1-cc.4` | Release tag / build version passed by `install.sh`; release tag in PowerShell. |
+| `GENTLE_CC_VERSION` | `4.3.1-cc.5` | Release tag / build version passed by `install.sh`; release tag in PowerShell. |
 | `GENTLE_CC_SOURCE` | Unset | `install.sh` source Git URL; explicit override before local/remote releases. |
 | `GENTLE_CC_REF` | Pinned commit above | Source ref used by `install.sh` with `GENTLE_CC_SOURCE`; ignored for releases. |
 | `GENTLE_CC_OWNER_REPO` | `AngelCLA/gentle-ai-cc` | GitHub repository for release downloads in `install.sh` / `install.ps1`. |
@@ -686,7 +720,7 @@ verify compatibility with a real `sync`.
 ## Limitations
 
 - **Not upstream.** Community workaround, not supported by the gentle-ai
-  maintainers; no support commitment is established by this repository preparation.
+  maintainers; no support commitment is established by this repository.
 - **Build-from-source needs the full module.** Go's `internal/` rule forbids an
   external module from importing the adapter, so a source build needs the whole
   gentle-ai module. Users installing a **prebuilt release** do not need it.
@@ -706,9 +740,9 @@ verify compatibility with a real `sync`.
 - Official `sync` fails `not supported in MVP`: run any `gentle-cc sync`/`install`
   (it cleans state) or edit `~/.gentle-ai/state.json` manually.
 - `python3 required for shared-state cleanup`: you are running the legacy
-  `4.3.1-cc.1` wrapper, not the native executable. Install `4.3.1-cc.4` once published or a
-  source-built native pair; `--no-wrapper` installs only the companion for the
-  legacy release.
+  `4.3.1-cc.1` wrapper, not the native executable. Install published `4.3.1-cc.5`
+  (or `4.3.1-cc.4`), or a source-built native pair; `--no-wrapper` installs only
+  the companion for the legacy release.
 - `cannot clean shared state`: inspect and repair `~/.gentle-ai/state.json`;
   invalid existing state is rejected before either mutating binary runs.
 - `shared state busy (gentle-cc.lock)`: wait for the active operation (it may
