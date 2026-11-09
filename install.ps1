@@ -9,16 +9,16 @@
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
 #
 # Env:
-#   GENTLE_CC_VERSION     release tag (default 4.3.1-cc.3)
+#   GENTLE_CC_VERSION     release tag (default 4.3.1-cc.4)
 #   GENTLE_CC_DEST        install dir  (default $env:LOCALAPPDATA\gentle-cc)
 #   GENTLE_CC_OWNER_REPO  owner/repo   (default AngelCLA/gentle-ai-cc)
-# 4.3.1-cc.3 is the native release; 4.3.1-cc.1 is the legacy wrapper.
+# 4.3.1-cc.4 is the native release; 4.3.1-cc.1 is the legacy wrapper.
 # Runtime needs no Bash/Python; packaging needs Go.
 # Controlled publication failures roll back changed files, not a crash-safe or
 # pair-atomic transaction. Use an exclusively controlled destination.
 $ErrorActionPreference = "Stop"
 
-$Version   = if ($env:GENTLE_CC_VERSION)    { $env:GENTLE_CC_VERSION }    else { "4.3.1-cc.3" }
+$Version   = if ($env:GENTLE_CC_VERSION)    { $env:GENTLE_CC_VERSION }    else { "4.3.1-cc.4" }
 $OwnerRepo = if ($env:GENTLE_CC_OWNER_REPO) { $env:GENTLE_CC_OWNER_REPO } else { "AngelCLA/gentle-ai-cc" }
 $Dest      = if ($env:GENTLE_CC_DEST)       { $env:GENTLE_CC_DEST }       else { Join-Path $env:LOCALAPPDATA "gentle-cc" }
 
