@@ -60,7 +60,12 @@ type result struct {
 
 func setup(t *testing.T) *fixture {
 	t.Helper()
-	home := t.TempDir()
+	// macOS temporary roots commonly include /var -> /private/var. Use the
+	// real isolated home; linked-home rejection has its own explicit fixture.
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	f := &fixture{t: t, home: home, state: filepath.Join(home, ".gentle-ai", "state.json")}
 	if err := os.MkdirAll(filepath.Dir(f.state), 0700); err != nil {
 		t.Fatal(err)
@@ -310,7 +315,7 @@ func TestHelpUnknownAndBuildFailure(t *testing.T) {
 	f := setup(t)
 	for _, route := range []string{"help", "--help", "-h", "unknown"} {
 		r := f.run(route, "--agent=pi")
-		if r.code != 0 || r.err != "" || !strings.Contains(r.out, "standalone") || !strings.Contains(r.out, "gentle-cc sync") {
+		if r.code != 0 || r.err != "" || !strings.Contains(r.out, "standalone") || !strings.Contains(r.out, "gentle-cc sync") || !strings.Contains(r.out, "sync/sync-all never add it") || !strings.Contains(r.out, "gentle-ai-branding.ts") {
 			t.Fatal(r)
 		}
 	}

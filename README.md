@@ -21,20 +21,35 @@ This repository is licensed under the [MIT License](LICENSE).
 The external gentle-ai companion and any bundled third-party components retain
 their own licenses and notices; this license does not relicense them.
 
-## Native wrapper (published in `4.3.1-cc.3`)
+## Native wrapper (`4.3.1-cc.4` release preparation)
 
 This distribution ships a standalone Go wrapper: running downloaded native
 binaries requires **neither Python nor Bash nor Go**. Installers still need Bash
 or PowerShell; source builds need Go. The companion remains a separate executable.
 
-`4.3.1-cc.3` is the current native release and the default version in both
-installers. The older `4.3.1-cc.1` release used a universal Bash wrapper, **not**
+`4.3.1-cc.4` is the prepared native release and the default version in both
+installers. Until it is published, use `GENTLE_CC_VERSION=4.3.1-cc.3` for the
+already published release (without Gentle AI branding). Published-release E2E
+scripts, workflows and their detailed guide intentionally remain pinned to `.3`
+until `.4` assets are public, avoiding a circular dependency in pre-release PR CI.
+The older `4.3.1-cc.1` release used a universal Bash wrapper, **not**
 the native asset format described here; `--no-wrapper` remains the explicit
 companion-only path for it and does not upgrade an existing legacy wrapper.
 
 The `4.3.1-cc.3` companion binaries are byte-identical to `4.3.1-cc.2` and
 `4.3.1-cc.1` because the companion ref did not change, so the companion still
 reports `4.3.1-cc.1` from `version`; only the wrapper is a new native build.
+
+### Release notes: `4.3.1-cc.4` (not yet published)
+
+- The native wrapper adds optional Gentle AI decoration automatically after a
+  successful mutating `install` and shared-state cleanup. The original Command
+  Code banner remains; `sync` and `sync-all` do not restore a removed mod.
+- Installer and release-packaging defaults advance to `4.3.1-cc.4`. The companion
+  source pin is unchanged. Companion assets reused from a previous verified
+  release retain their embedded version; record artifact provenance when publishing.
+- Branding is new in `.4`, not the published `.3` wrapper. See
+  [Gentle AI decoration](#gentle-ai-decoration-431-cc4) for opt-out and safety details.
 
 ## Release install
 
@@ -70,7 +85,7 @@ gentle-cc install --preset full-gentleman   # first time
 gentle-cc sync                              # subsequent
 ```
 
-`GENTLE_CC_VERSION` pins another release; the default is `4.3.1-cc.3`.
+`GENTLE_CC_VERSION` pins another release; the default is `4.3.1-cc.4`.
 `GENTLE_CC_DEST` changes the install directory, not the wrapper's binary lookup:
 for a custom directory, add it to `PATH` and set `GENTLE_CC_BIN` to the installed
 companion's full path.
@@ -212,7 +227,7 @@ or directly against the public release:
 
 ```bash
 ./gentle-cc-install.sh --from-release \
-  https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.3 --version 4.3.1-cc.3
+  https://github.com/AngelCLA/gentle-ai-cc/releases/download/4.3.1-cc.4 --version 4.3.1-cc.4
 ```
 
 The directory must contain `checksums.txt`, the matching platform/version binary,
@@ -264,7 +279,7 @@ use the publication recovery described below.
 
 `--ref` selects the source commit/tag (default
 `768e6b213c795f574ee837e3a6ce9b4274ee6280`). `--version` selects the release asset
-version or injected source build version (default `4.3.1-cc.3`); it does not
+version or injected source build version (default `4.3.1-cc.4`); it does not
 select a source ref. See `./gentle-cc-install.sh --help` for options.
 
 Both install `~/.local/bin/gentle-ai-cc` and, unless `--no-wrapper`,
@@ -308,6 +323,54 @@ gentle-cc sync    [args]    # refresh only Command Code (companion)
 gentle-cc doctor  [args]    # run doctor with the companion binary
 gentle-cc sync-all [args]   # official sync for other agents + Command Code
 ```
+
+### Gentle AI decoration (`4.3.1-cc.4`)
+
+The `.4` wrapper (also buildable from this checkout) adds a small textual rose and **Gentle AI**
+label above Command Code's input after a successful mutating `gentle-cc install`
+and successful shared-state cleanup. This is not part of the already published
+`4.3.1-cc.3` wrapper. It installs a self-contained loose mod at
+`~/.commandcode/mods/gentle-ai-branding.ts` (Windows: the same path below the
+wrapper's HOME/USERPROFILE). The companion itself is unchanged.
+
+This is additive decoration, **not a replacement for the original Command Code
+banner**, a full theme, or evidence that any tool has run. It uses the
+[documented mods UI widget API](https://commandcode.ai/docs/mods), with
+`placement: 'above-editor'` and an array of text nodes from `render`. The mod
+exports the documented default factory using plain JavaScript syntax, with no
+runtime package imports. A deterministic Node mock checks the installed factory
+when Node is available in development; otherwise tests check its structural form.
+Neither check certifies the actual Command Code loader. That API is
+experimental; rendering and compatibility with your installed Command Code
+version require a real-client check. The static mod has no hooks, network
+requests, tool calls, or settings changes.
+
+Automatic installation happens **only on install**. `sync` and `sync-all` never
+create or refresh it. Delete `~/.commandcode/mods/gentle-ai-branding.ts` to remove
+the decoration; later syncs respect that decision. Running a new mutating
+`install` opts in again if the file is absent. Existing byte-identical content is
+a no-op; an existing custom/modified file, directory or link is never replaced.
+Help and any argument containing `dry-run` skip branding, even with other
+options, after `--`, or with `=false`. This extra safeguard does not change the
+existing conservative shared-state cleanup/locking classification below.
+
+Branding runs under the existing guardian lock and skips an already cancelled
+operation. It opens checked directory handles, rejects linked or non-directory
+components (including HOME ancestors), and creates the file exclusively, never
+truncating an existing path. A linked home must be replaced with a real path in
+HOME to enable decoration. A conflict or I/O failure prints:
+
+```text
+gentle-cc: warning: Gentle AI branding not installed; existing or unsafe path preserved (see README)
+```
+
+This warning does not change the child's successful exit or undo cleanup. Newly
+created configuration directories or a partial new mod can remain after an I/O
+failure or interruption; inspect them before any separately authorized manual
+repair. Exclusive creation prevents replacement, but is not crash-atomic
+publication: a concurrent client can briefly see an incomplete newly created
+file. Use a locally controlled home and restart Command Code after installation
+or removal if it does not reload mods automatically.
 
 ### Wrapper-owned agent selection
 
@@ -424,7 +487,9 @@ None of these suites certifies the separate future Linux probe.
 `ubuntu-24.04` for pushes to `main`, pull requests targeting `main`, and manual
 dispatch. It uses a disposable runner home, read-only repository
 permissions, and no configured secrets. Network access is unrestricted.
-The test downloads `4.3.1-cc.3` and a checksum-pinned Engram `v3.6.2` binary,
+The test intentionally still downloads published `4.3.1-cc.3`, not the prepared
+`.4` installer default, until `.4` is published; this avoids requiring unpublished
+assets for PR CI. It downloads a checksum-pinned Engram `v3.6.2` binary,
 then runs the companion `install`/`sync`, verifies that the generated MCP
 entry resolves to that checksum-pinned binary, performs an actual Engram MCP
 stdio initialize/list/save/search round-trip against synthetic data in a
@@ -587,7 +652,7 @@ verify compatibility with a real `sync`.
 | `GENTLE_AI_BIN` | `gentle-ai` | Official binary used by `sync-all`. |
 | `GENTLE_AI_HOME` | Unset | Custom state home unsupported by wrapper mutations; any nonempty value is rejected. |
 | `GENTLE_CC_DEST` | Bash: `~/.local/bin`; PowerShell: `$env:LOCALAPPDATA\gentle-cc` | Installer destination; does not change wrapper lookup or `PATH`. |
-| `GENTLE_CC_VERSION` | `4.3.1-cc.3` | Release tag / build version passed by `install.sh`; release tag in PowerShell. |
+| `GENTLE_CC_VERSION` | `4.3.1-cc.4` | Release tag / build version passed by `install.sh`; release tag in PowerShell. |
 | `GENTLE_CC_SOURCE` | Unset | `install.sh` source Git URL; explicit override before local/remote releases. |
 | `GENTLE_CC_REF` | Pinned commit above | Source ref used by `install.sh` with `GENTLE_CC_SOURCE`; ignored for releases. |
 | `GENTLE_CC_OWNER_REPO` | `AngelCLA/gentle-ai-cc` | GitHub repository for release downloads in `install.sh` / `install.ps1`. |
@@ -615,7 +680,7 @@ verify compatibility with a real `sync`.
 - Official `sync` fails `not supported in MVP`: run any `gentle-cc sync`/`install`
   (it cleans state) or edit `~/.gentle-ai/state.json` manually.
 - `python3 required for shared-state cleanup`: you are running the legacy
-  `4.3.1-cc.1` wrapper, not the native executable. Install `4.3.1-cc.3` or a
+  `4.3.1-cc.1` wrapper, not the native executable. Install `4.3.1-cc.4` once published or a
   source-built native pair; `--no-wrapper` installs only the companion for the
   legacy release.
 - `cannot clean shared state`: inspect and repair `~/.gentle-ai/state.json`;
